@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# The forks are their own workspaces; we depend on single crates from them by path.
+exclude = ["upstream"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+repository = "https://github.com/Oagaun512/ubu-office-engine"
+publish = false
+
+[workspace.dependencies]
+pdfcraft-render = { path = "upstream/pdfcraft/crates/render" }
+pdfcraft-cos = { path = "upstream/pdfcraft/crates/cos" }
+wasm-bindgen = "=0.2.129"
+js-sys = "0.3"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# Native test and round-trip runs: optimised dependencies so the corpus runs in minutes.
+[profile.dev.package."*"]
+opt-level = 2
+debug = "line-tables-only"
+
+# pdfcraft patches these crates.io crates with copies under its vendor/ directory. Patches only
+# apply from the root of the workspace being built, so they are repeated here, pointing at the
+# same files. scripts/check-patches.mjs fails CI if this list drifts from pdfcraft's (UI-only
+# patches excepted).
+[patch.crates-io]
+hayro-interpret = { path = "upstream/pdfcraft/vendor/hayro-interpret" }
+hayro = { path = "upstream/pdfcraft/vendor/hayro" }
+hayro-syntax = { path = "upstream/pdfcraft/vendor/hayro-syntax" }
+hayro-jbig2 = { path = "upstream/pdfcraft/vendor/hayro-jbig2" }
+lopdf = { path = "upstream/pdfcraft/vendor/lopdf" }
+vello_common = { path = "upstream/pdfcraft/vendor/vello_common" }
