@@ -239,3 +239,78 @@ jobs:
           name: ubunex-vendor-ubu-office
           path: dist/
           if-no-files-found: error
+
+  publish:
+    name: open the artifact PR into Ubunex
+    needs: [bundle]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      UBUNEX_PR_TOKEN: ${{ secrets.UBUNEX_PR_TOKEN }}
+    steps:
+      - name: Token present?
+        id: token
+        run: |
+          if [ -z "$UBUNEX_PR_TOKEN" ]; then
+            echo "::notice::UBUNEX_PR_TOKEN is not set; skipping the Ubunex PR. Download the ubunex-vendor-ubu-office artifact instead."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.token.outputs.ok == 'true'
+        with:
+          name: ubunex-vendor-ubu-office
+          path: dist
+      - uses: actions/checkout@v4
+        if: steps.token.outputs.ok == 'true'
+        with:
+          repository: Oagaun512/ubunex
+          token: ${{ secrets.UBUNEX_PR_TOKEN }}
+          path: ubunex
+      - name: Commit and open or update the PR
+        if: steps.token.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.UBUNEX_PR_TOKEN }}
+        run: |
+          short=${GITHUB_SHA::7}
+          branch=ubu-office/pdf-engine
+          cd ubunex
+          git config user.name "ubu-office-engine CI"
+          git config user.email "129573250+Oagaun512@users.noreply.github.com"
+          git checkout -B "$branch"
+          rm -rf src/vendor/ubu-office/pdf
+          mkdir -p src/vendor/ubu-office
+          cp -r ../dist/pdf src/vendor/ubu-office/pdf
+          git add -A src/vendor/ubu-office/pdf
+          if git diff --cached --quiet origin/main -- src/vendor/ubu-office/pdf; then
+            echo "Ubunex already vendors this build; nothing to do."
+            exit 0
+          fi
+          old=$(git show origin/main:src/vendor/ubu-office/pdf/ubu_pdf_bg.wasm 2>/dev/null | wc -c)
+          new=$(wc -c < src/vendor/ubu-office/pdf/ubu_pdf_bg.wasm)
+          sbom=$(git diff --cached --stat origin/main -- src/vendor/ubu-office/pdf/SBOM.md | tail -1)
+          git commit -q -m "Vendor Ubu Office PDF engine ${short}" -m "Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          git push -q --force origin "$branch"
+          {
+            echo "Vendors the Ubu Office PDF engine built from Oagaun512/ubu-office-engine@${GITHUB_SHA}. Generated files only."
+            echo
+            echo '```'
+            cat src/vendor/ubu-office/pdf/VERSION
+            echo '```'
+            echo
+            echo "**wasm size:** ${old} B → ${new} B"
+            echo
+            cat src/vendor/ubu-office/pdf/SIZE.md
+            echo
+            echo "**SBOM change:** ${sbom:-none}"
+            echo
+            sed -n '/^- Files/,/^$/p' src/vendor/ubu-office/pdf/ROUNDTRIP.md
+            echo
+            echo "Verify before merging: \`npm run typecheck\`, \`npm run build\`, \`npm run test:unit\`."
+          } > ../body.md
+          if gh pr view "$branch" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$branch" --title "Vendor Ubu Office PDF engine ${short}" --body-file ../body.md
+          else
+            gh pr create --base main --head "$branch" --title "Vendor Ubu Office PDF engine ${short}" --body-file ../body.md
+          fi
