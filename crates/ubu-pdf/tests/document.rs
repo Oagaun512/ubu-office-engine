@@ -60,8 +60,8 @@ fn renders_with_expected_dimensions_and_straight_alpha() {
     assert_eq!((r.width, r.height), (400, 200));
     assert_eq!(r.rgba.len(), 400 * 200 * 4);
     // A page clears to opaque white; the text draws dark pixels on it.
-    assert!(r.rgba.chunks_exact(4).all(|p| p[3] == 255), "page raster is opaque");
-    assert!(r.rgba.chunks_exact(4).any(|p| p[0] < 128), "the text left ink on the page");
+    assert!(r.rgba.as_chunks::<4>().0.iter().all(|p| p[3] == 255), "page raster is opaque");
+    assert!(r.rgba.as_chunks::<4>().0.iter().any(|p| p[0] < 128), "the text left ink on the page");
 }
 
 #[test]

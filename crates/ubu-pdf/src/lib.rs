@@ -182,7 +182,7 @@ fn out_of_range(index: usize, count: usize) -> PdfError {
 
 /// Premultiplied RGBA8 → straight RGBA8, in place. Canvas `ImageData` expects straight alpha.
 pub fn unpremultiply(rgba: &mut [u8]) {
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         let a = u32::from(px[3]);
         if a == 0 || a == 255 {
             continue;
