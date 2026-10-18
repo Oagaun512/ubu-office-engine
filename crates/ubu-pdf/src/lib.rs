@@ -7,6 +7,9 @@
 //! Rendering and text come from the upstream renderer (`pdfcraft-render`); saving comes from the
 //! upstream object layer (`pdfcraft-cos`). Neither is modified here.
 
+#[cfg(target_arch = "wasm32")]
+mod wasm;
+
 use std::fmt;
 use std::sync::Arc;
 
