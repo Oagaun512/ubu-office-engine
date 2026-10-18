@@ -1,0 +1,43 @@
+# cargo-deny policy: permissive licences only (pdfcraft's allowlist). GPL, AGPL and LGPL are
+# never linked; neither is anything whose licence cargo-deny cannot determine.
+# Asset licences (fonts, CMaps, ICC profiles) are invisible to cargo-deny; they are listed in
+# NOTICE and copied into every artifact bundle's LICENSES/.
+
+[graph]
+# What the browser build links, plus the native targets the tests run on.
+targets = ["wasm32-unknown-unknown", "x86_64-unknown-linux-gnu"]
+all-features = false
+
+[licenses]
+confidence-threshold = 0.9
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "CC0-1.0",
+]
+
+[licenses.private]
+# Our own crates (publish = false) are MIT OR Apache-2.0 and checked by their manifests.
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# Our forks only; nothing in the M1 graph uses git sources today.
+allow-git = ["https://github.com/Oagaun512/craft-libs"]
+
+[advisories]
+yanked = "warn"
