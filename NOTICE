@@ -1,0 +1,36 @@
+ubu-office-engine
+Copyright (c) 2026 Latest Technology and the ubu-office-engine contributors.
+Licensed under the MIT License or the Apache License, Version 2.0, at your option
+(LICENSE-MIT, LICENSE-APACHE).
+
+This repository builds headless WebAssembly document engines for Ubu Office (Ubunex).
+The format engines themselves are third-party open-source code, kept unmodified as git
+submodules under upstream/, each with its own LICENSE, NOTICE and ATTRIBUTION files:
+
+- upstream/pdfcraft — Copyright (c) 2026 ArtCraft Team and the PdfCraft contributors.
+  MIT OR Apache-2.0. Fork of https://github.com/storytold/pdfcraft.
+- upstream/craft-libs — Copyright (c) 2026 ArtCraft Team and contributors.
+  MIT OR Apache-2.0. Fork of https://github.com/storytold/craft-libs.
+
+The upstream product names, wordmarks and logos are trademarks of their owners. They are not
+covered by the licences above, are not used in Ubu Office's interface or marketing, and the
+upstream docs/brand/ material is never copied into build artifacts.
+
+Required notices for material compiled into the PDF engine build (crates/ubu-pdf):
+
+  Foxit standard-14 substitute fonts (upstream/pdfcraft/vendor/hayro-interpret/assets/*.pfb):
+    Copyright 2014 PDFium Authors. All rights reserved. Original code copyright 2014 Foxit
+    Software Inc. Redistributed under the BSD-3-Clause licence
+    (upstream/pdfcraft/vendor/hayro-interpret/assets/LICENSE_FOXIT).
+
+  CMap resources (bundled by hayro-cmap; character-mapping data):
+    Copyright 1990-2023 Adobe. All rights reserved. Redistributed under the BSD-3-Clause licence
+    (https://github.com/adobe-type-tools/cmap-resources/blob/master/LICENSE.txt). Neither the name
+    of Adobe nor the names of its contributors are used to endorse or promote this product.
+
+  Colour profile in hayro-interpret — CGATS001Compat-v2-micro.icc (CC0-1.0, Clinton Ingram).
+
+The full per-crate licence list of every build is generated into SBOM.md by CI.
+
+Deliberately excluded from every build: the OCR models (CC-BY-SA-4.0), the video/audio codec
+crates, the JavaScript interpreter, digital signing and all desktop UI crates.

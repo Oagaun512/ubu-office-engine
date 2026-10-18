@@ -1,0 +1,6 @@
+/target
+/dist
+/corpus/cache
+*.wasm
+!/fixtures/**/*.wasm
+.DS_Store
