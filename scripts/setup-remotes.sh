@@ -5,7 +5,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 git submodule update --init
-for repo in pdfcraft craft-libs; do
+for repo in pdfcraft craft-libs wordcraft; do
   dir="upstream/$repo"
   url="https://github.com/storytold/$repo"
   if git -C "$dir" remote get-url upstream >/dev/null 2>&1; then

@@ -6,6 +6,7 @@
 //   node scripts/sbom.mjs <crate> > SBOM.md
 import { execFileSync } from "node:child_process";
 import { relative, resolve } from "node:path";
+import { engine } from "./engines.mjs";
 
 const crate = process.argv[2];
 if (!crate) {
@@ -14,7 +15,7 @@ if (!crate) {
 }
 
 const meta = JSON.parse(
-  execFileSync("cargo", ["metadata", "--format-version", "1", "--locked", "--filter-platform", "wasm32-unknown-unknown"], {
+  execFileSync("cargo", ["metadata", "--format-version", "1", "--locked", "--filter-platform", "wasm32-unknown-unknown", "--manifest-path", engine(crate).manifest], {
     encoding: "utf8",
     maxBuffer: 256 * 1024 * 1024,
   }),

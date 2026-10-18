@@ -1,8 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-# The forks are their own workspaces; we depend on single crates from them by path.
-exclude = ["upstream"]
+# The forks are their own workspaces; we depend on single crates from them by path. The DOCX
+# engine is its own workspace too (docx/Cargo.toml explains why).
+exclude = ["upstream", "docx"]
 
 [workspace.package]
 version = "0.1.0"

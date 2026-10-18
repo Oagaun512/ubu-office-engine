@@ -4,3 +4,6 @@
 [submodule "upstream/craft-libs"]
 	path = upstream/craft-libs
 	url = https://github.com/Oagaun512/craft-libs
+[submodule "upstream/wordcraft"]
+	path = upstream/wordcraft
+	url = https://github.com/Oagaun512/wordcraft

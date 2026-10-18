@@ -1,4 +1,7 @@
 /target
+/docx/target
+/pkg
+/sample.docx
 /dist
 /corpus/cache
 *.wasm

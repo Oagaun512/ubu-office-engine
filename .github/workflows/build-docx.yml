@@ -1,0 +1,311 @@
+name: build-docx
+
+# The DOCX engine (Ubu Office Phase 3): its own Cargo workspace in docx/ (docx/Cargo.toml says
+# why), built, checked and vendored into Ubunex like the PDF engine in build.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-docx-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  check:
+    name: docx check (patches, fmt, clippy, wasm dependency tree)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docx-check
+          workspaces: docx
+      - name: Patches match pdfcraft's and wordcraft's
+        run: node scripts/check-patches.mjs
+      - name: Forks are unmodified at their pinned commits
+        run: |
+          git submodule status
+          for d in upstream/*; do
+            test -z "$(git -C "$d" status --porcelain)" || { echo "::error::$d has local changes"; exit 1; }
+          done
+      - working-directory: docx
+        run: cargo fmt --all --check
+      - working-directory: docx
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: wasm32 clippy (covers the wasm-bindgen layer)
+        working-directory: docx
+        run: cargo clippy --locked -p ubu-docx --target wasm32-unknown-unknown -- -D warnings
+      - name: wasm32 dependency report
+        working-directory: docx
+        run: |
+          {
+            echo "### wasm32 dependency tree: ubu-docx"
+            for c in getrandom rayon tokio; do
+              hits=$(cargo tree --locked -p ubu-docx --target wasm32-unknown-unknown -e normal -i "$c" 2>/dev/null | head -1 || true)
+              echo "- \`$c\`: ${hits:-not in the tree}"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    name: docx native tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docx-test
+          workspaces: docx
+      - working-directory: docx
+        run: cargo test --locked -p ubu-docx
+
+  wasm:
+    name: docx wasm build, bindings, size, export check, worker smoke test
+    runs-on: ubuntu-latest
+    env:
+      WASM_BINDGEN_VERSION: 0.2.129 # must equal the wasm-bindgen crate version in docx/Cargo.lock
+      BINARYEN_VERSION: version_133
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docx-wasm
+          workspaces: docx
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install wasm-bindgen CLI
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}
+      - name: Install binaryen (wasm-opt)
+        run: |
+          base=https://github.com/WebAssembly/binaryen/releases/download/$BINARYEN_VERSION
+          file=binaryen-$BINARYEN_VERSION-x86_64-linux.tar.gz
+          curl -sSfLO "$base/$file" && curl -sSfLO "$base/$file.sha256"
+          sha256sum -c "$file.sha256"
+          tar xzf "$file"
+          echo "$PWD/binaryen-$BINARYEN_VERSION/bin" >> "$GITHUB_PATH"
+      - name: Lockfile and CLI agree on wasm-bindgen
+        run: |
+          locked=$(grep -A1 '^name = "wasm-bindgen"$' docx/Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')
+          test "$locked" = "$WASM_BINDGEN_VERSION" || { echo "::error::docx/Cargo.lock has wasm-bindgen $locked, CI installs $WASM_BINDGEN_VERSION"; exit 1; }
+      - name: cargo build (wasm32, release)
+        working-directory: docx
+        env:
+          UBU_ENGINE_COMMIT: ${{ github.sha }}
+        run: |
+          export UBU_DOCX_UPSTREAM_COMMIT=$(git -C ../upstream/wordcraft rev-parse HEAD)
+          cargo build --locked --release -p ubu-docx --target wasm32-unknown-unknown
+      - name: wasm-bindgen --target web
+        run: wasm-bindgen docx/target/wasm32-unknown-unknown/release/ubu_docx.wasm --target web --typescript --out-dir pkg
+      - name: wasm-opt -Oz
+        run: |
+          cp pkg/ubu_docx_bg.wasm pkg/ubu_docx_bg.unopt.wasm
+          wasm-opt -Oz --strip-debug --strip-producers \
+            --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
+            --enable-mutable-globals --enable-reference-types --enable-multivalue \
+            pkg/ubu_docx_bg.unopt.wasm -o pkg/ubu_docx_bg.wasm
+      - name: Size report (and the D1 size gate)
+        run: |
+          {
+            echo "## ubu-docx sizes"
+            echo
+            node scripts/size-report.mjs pkg/ubu_docx_bg.wasm pkg/ubu_docx.js
+            echo
+            echo "Before wasm-opt: $(stat -c %s pkg/ubu_docx_bg.unopt.wasm) B"
+          } | tee pkg/SIZE.md >> "$GITHUB_STEP_SUMMARY"
+          rm pkg/ubu_docx_bg.unopt.wasm
+          brotli=$(node -e "const z=require('zlib');console.log(z.brotliCompressSync(require('fs').readFileSync('pkg/ubu_docx_bg.wasm'),{params:{[z.constants.BROTLI_PARAM_QUALITY]:11}}).length)")
+          # Phase 3 plan: over about 5 MB brotli, stop and decide what to trim before building on it.
+          if [ "$brotli" -gt 5242880 ]; then echo "::warning::ubu-docx is $brotli B with brotli, over the 5 MiB gate"; fi
+      - name: Export check (bindings vs contract, exports, browser-safe imports)
+        run: node scripts/check-exports.mjs pkg ubu_docx contract/ubu_docx.d.ts
+      - name: Worker smoke test (the engine in a worker, as Ubunex runs it)
+        run: |
+          cargo run --locked --manifest-path docx/Cargo.toml -p ubu-docx --example make_sample -- sample.docx
+          node scripts/docx-worker-smoke.mjs pkg sample.docx | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ubu-docx-pkg
+          path: pkg/
+          if-no-files-found: error
+
+  licences:
+    name: docx licence gate and SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: rustup show active-toolchain || rustup toolchain install
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo deny (licences, bans, sources)
+        run: cargo deny --manifest-path docx/Cargo.toml --locked check --config deny.toml licenses bans sources
+      - name: SBOM.md (fails on copyleft, unknown licence or unexpected source)
+        run: |
+          mkdir -p out
+          node scripts/sbom.mjs ubu-docx > out/SBOM.md
+          {
+            echo "## SBOM (docx)"
+            sed -n 's/^\([0-9]*\) packages\.$/\1 packages linked into the browser build, all permissive./p' out/SBOM.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Licence texts
+        run: node scripts/licenses.mjs ubu-docx out/LICENSES
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ubu-docx-licences
+          path: out/
+          if-no-files-found: error
+
+  bundle:
+    name: assemble the Ubunex docx bundle
+    needs: [check, test, wasm, licences]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Assemble dist/docx
+        env:
+          WASM_BINDGEN_VERSION: 0.2.129
+          BINARYEN_VERSION: version_133
+        run: |
+          d=dist/docx
+          mkdir -p "$d"
+          cp artifacts/ubu-docx-pkg/ubu_docx.js artifacts/ubu-docx-pkg/ubu_docx.d.ts \
+             artifacts/ubu-docx-pkg/ubu_docx_bg.wasm artifacts/ubu-docx-pkg/ubu_docx_bg.wasm.d.ts \
+             artifacts/ubu-docx-pkg/SIZE.md "$d/"
+          cp artifacts/ubu-docx-licences/SBOM.md "$d/"
+          cp -r artifacts/ubu-docx-licences/LICENSES "$d/"
+          cp NOTICE "$d/NOTICE"
+          {
+            echo "engine: Oagaun512/ubu-office-engine@${GITHUB_SHA}"
+            echo "docx engine fork: Oagaun512/wordcraft@$(git -C upstream/wordcraft rev-parse HEAD) (upstream: storytold/wordcraft)"
+            echo "craft-libs fork: Oagaun512/craft-libs@$(git -C upstream/craft-libs rev-parse HEAD) (upstream: storytold/craft-libs)"
+            echo "rustc: $(rustc --version)"
+            echo "wasm-bindgen: ${WASM_BINDGEN_VERSION}"
+            echo "binaryen: ${BINARYEN_VERSION}"
+            echo "ci run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > "$d/VERSION"
+          cat > "$d/README.md" <<'MD'
+          # Ubu Office DOCX engine (generated)
+
+          Built artifacts of the headless DOCX engine from
+          [Oagaun512/ubu-office-engine](https://github.com/Oagaun512/ubu-office-engine) (`docx/`).
+          **Do not edit these files.** They are replaced by the engine's CI on every engine release.
+
+          - `ubu_docx.js`, `ubu_docx.d.ts`: the wasm-bindgen glue and its types (`--target web`)
+          - `ubu_docx_bg.wasm`: the engine
+          - `VERSION`: the exact commits and tool versions that produced them
+          - `SBOM.md`, `LICENSES/`, `NOTICE`: what is inside and under which licences
+          - `SIZE.md`: measured size
+          MD
+          sed -i 's/^          //' "$d/README.md"
+          find dist -type f | sort
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ubunex-vendor-ubu-office-docx
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: open the docx artifact PR into Ubunex
+    needs: [bundle]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # As in build.yml: the token lives in this environment, which only `main` may deploy to.
+    environment: ubunex-publish
+    runs-on: ubuntu-latest
+    env:
+      UBUNEX_PR_TOKEN: ${{ secrets.UBUNEX_PR_TOKEN }}
+    steps:
+      - name: Token present?
+        id: token
+        run: |
+          if [ -z "$UBUNEX_PR_TOKEN" ]; then
+            echo "::notice::UBUNEX_PR_TOKEN is not set; skipping the Ubunex PR. Download the ubunex-vendor-ubu-office-docx artifact instead."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.token.outputs.ok == 'true'
+        with:
+          name: ubunex-vendor-ubu-office-docx
+          path: dist
+      - uses: actions/checkout@v4
+        if: steps.token.outputs.ok == 'true'
+        with:
+          repository: Oagaun512/ubunex
+          token: ${{ secrets.UBUNEX_PR_TOKEN }}
+          path: ubunex
+      - name: Commit and open or update the PR
+        if: steps.token.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.UBUNEX_PR_TOKEN }}
+        run: |
+          short=${GITHUB_SHA::7}
+          branch=ubu-office/docx-engine
+          cd ubunex
+          git config user.name "ubu-office-engine CI"
+          git config user.email "129573250+Oagaun512@users.noreply.github.com"
+          git checkout -B "$branch"
+          rm -rf src/vendor/ubu-office/docx
+          mkdir -p src/vendor/ubu-office
+          cp -r ../dist/docx src/vendor/ubu-office/docx
+          git add -A src/vendor/ubu-office/docx
+          if git diff --cached --quiet origin/main -- src/vendor/ubu-office/docx; then
+            echo "Ubunex already vendors this build; nothing to do."
+            exit 0
+          fi
+          old=$(git show origin/main:src/vendor/ubu-office/docx/ubu_docx_bg.wasm 2>/dev/null | wc -c)
+          new=$(wc -c < src/vendor/ubu-office/docx/ubu_docx_bg.wasm)
+          sbom=$(git diff --cached --stat origin/main -- src/vendor/ubu-office/docx/SBOM.md | tail -1)
+          git commit -q -m "Vendor Ubu Office DOCX engine ${short}" -m "Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          git push -q --force origin "$branch"
+          {
+            echo "Vendors the Ubu Office DOCX engine built from Oagaun512/ubu-office-engine@${GITHUB_SHA}. Generated files only."
+            echo
+            echo '```'
+            cat src/vendor/ubu-office/docx/VERSION
+            echo '```'
+            echo
+            echo "**wasm size:** ${old} B → ${new} B"
+            echo
+            cat src/vendor/ubu-office/docx/SIZE.md
+            echo
+            echo "**SBOM change:** ${sbom:-none}"
+            echo
+            echo "Verify before merging: \`npm run typecheck\`, \`npm run build\`, \`npm run test:unit\`."
+          } > ../body.md
+          if gh pr view "$branch" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$branch" --title "Vendor Ubu Office DOCX engine ${short}" --body-file ../body.md
+          else
+            gh pr create --base main --head "$branch" --title "Vendor Ubu Office DOCX engine ${short}" --body-file ../body.md
+          fi

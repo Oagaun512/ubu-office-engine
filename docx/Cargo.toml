@@ -1,0 +1,49 @@
+# The DOCX engine's own workspace (Ubu Office Phase 3, D1; decision D16).
+#
+# It is separate from the PDF engine's workspace at the repository root on purpose: patches only
+# apply from the root of the workspace being built, and the root repeats pdfcraft's patches
+# (vello_common, hayro-*), which would also reach wordcraft's vello_cpu. Here we repeat
+# wordcraft's own [patch.crates-io] instead, with our own Cargo.lock.
+[workspace]
+resolver = "3"
+members = ["ubu-docx"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+repository = "https://github.com/Oagaun512/ubu-office-engine"
+publish = false
+
+[workspace.dependencies]
+wordcraft-engine = { path = "../upstream/wordcraft/crates/engine" }
+wordcraft-doc = { path = "../upstream/wordcraft/crates/doc" }
+wordcraft-fonts = { path = "../upstream/wordcraft/crates/fonts" }
+wordcraft-pdf = { path = "../upstream/wordcraft/crates/pdf" }
+wasm-bindgen = "=0.2.129"
+js-sys = "0.3"
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# Native test runs: optimised dependencies keep layout and rendering in the tests fast.
+[profile.dev.package."*"]
+opt-level = 2
+debug = "line-tables-only"
+
+# wordcraft's [patch.crates-io] (upstream/wordcraft/Cargo.toml), pointed at our craft-libs fork,
+# mounted unmodified at the same commit wordcraft pins (c3487320). scripts/check-patches.mjs
+# fails CI if this drifts from wordcraft's list.
+[patch.crates-io]
+krilla = { path = "../upstream/craft-libs/vendor/krilla" }
+
+# wordcraft takes craft-pdf from the storytold/craft-libs git repository at c3487320; the same
+# commit is mounted from our fork, so nothing is fetched from git at build time.
+[patch."https://github.com/storytold/craft-libs"]
+craft-pdf = { path = "../upstream/craft-libs/crates/pdf" }
