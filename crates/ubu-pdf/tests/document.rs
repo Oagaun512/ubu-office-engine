@@ -1,6 +1,6 @@
 //! Native tests of the engine API on PDFs generated here, so no fixture files are needed.
 
-use ubu_pdf::{Document, ErrorCode, MAX_PIXELS, unpremultiply};
+use ubu_pdf::{Allow, Document, ErrorCode, MAX_PIXELS, unpremultiply};
 
 /// A valid PDF with one page per entry of `pages`, each `[w, h]` points, showing `text` in
 /// Helvetica from 40 pt below the top. Each `\n` in `text` starts a new line 30 pt lower; the
@@ -207,4 +207,117 @@ fn text_layer_and_search_reject_bad_pages_and_agree_with_page_text() {
     let layer = doc.page_text_layer(0).unwrap();
     assert_eq!(doc.page_text(0).unwrap(), first, "the cached text is the same text");
     assert_eq!(layer.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n").trim(), first.trim());
+}
+
+// ── Password protection (Ubu Office Phase 2b, E1; decisions D11 and D12) ─────────────────────
+
+/// Fixed entropy, so the tests are deterministic; the browser binding uses getrandom.
+const RANDOM: [u8; 64] = [7; 64];
+const NOTHING: Allow = Allow { print: false, copy: false, modify: false };
+
+fn page_texts(doc: &mut Document) -> Vec<String> {
+    (0..doc.page_count()).map(|i| doc.page_text(i).unwrap().trim().to_owned()).collect()
+}
+
+#[test]
+fn a_plain_document_is_unprotected_and_may_be_protected() {
+    let doc = Document::open(pdf(&[[300, 300]], "Plain"), None).unwrap();
+    let p = doc.protection().unwrap();
+    assert!(!p.encrypted && p.opened_as_owner && !p.restricted && p.can_change());
+    assert_eq!(p.allow, Allow::ALL);
+}
+
+#[test]
+fn protect_then_reopen_needs_the_open_password() {
+    let mut original = Document::open(pdf(&[[300, 300], [300, 300]], "Secret"), None).unwrap();
+    let protected = original.save_protected("open-pw", None, Allow::ALL, &RANDOM).unwrap();
+    assert!(protected.starts_with(b"%PDF-"));
+    assert!(protected.windows(5).any(|w| w == b"AESV3"), "AES-256 (PDF 2.0 crypt filter)");
+
+    assert_eq!(Document::open(protected.clone(), None).err().unwrap().code, ErrorCode::NeedsPassword);
+    assert_eq!(Document::open(protected.clone(), Some("nope")).err().unwrap().code, ErrorCode::WrongPassword);
+    let mut reopened = Document::open(protected, Some("open-pw")).unwrap();
+    assert_eq!(page_texts(&mut reopened), page_texts(&mut original), "same pages, same text");
+
+    // No restrictions and no permissions password: the open password is also the owner password.
+    let p = reopened.protection().unwrap();
+    assert!(p.encrypted && p.opened_as_owner && !p.restricted && p.can_change());
+}
+
+#[test]
+fn restrictions_without_a_permissions_password_cannot_be_lifted() {
+    let doc = Document::open(pdf(&[[300, 300]], "Locked"), None).unwrap();
+    let protected = doc.save_protected("open-pw", None, NOTHING, &RANDOM).unwrap();
+    let reopened = Document::open(protected.clone(), Some("open-pw")).unwrap();
+    let p = reopened.protection().unwrap();
+    assert!(p.encrypted && !p.opened_as_owner && p.restricted && !p.can_change());
+    assert_eq!(p.allow, NOTHING);
+
+    // D11: the open password alone never strips the restrictions, by unlocking or re-protecting.
+    assert_eq!(reopened.save_unprotected().err().unwrap().code, ErrorCode::OwnerPasswordRequired);
+    assert_eq!(reopened.save_protected("other", None, Allow::ALL, &RANDOM).err().unwrap().code, ErrorCode::OwnerPasswordRequired);
+
+    // D12: the random owner password is the hex of the second half of the entropy, never shown;
+    // nothing else opens the file as owner.
+    assert_eq!(Document::open(protected, Some("owner")).err().unwrap().code, ErrorCode::WrongPassword);
+}
+
+#[test]
+fn the_permissions_password_lifts_restrictions_and_removes_protection() {
+    let mut original = Document::open(pdf(&[[300, 300], [300, 300]], "Owned"), None).unwrap();
+    let allow = Allow { print: true, copy: false, modify: false };
+    let protected = original.save_protected("open-pw", Some("owner-pw"), allow, &RANDOM).unwrap();
+
+    let as_user = Document::open(protected.clone(), Some("open-pw")).unwrap();
+    let p = as_user.protection().unwrap();
+    assert!(p.restricted && !p.opened_as_owner && !p.can_change());
+    assert_eq!(p.allow, allow);
+
+    let as_owner = Document::open(protected, Some("owner-pw")).unwrap();
+    let p = as_owner.protection().unwrap();
+    assert!(p.encrypted && p.opened_as_owner && p.restricted && p.can_change());
+    assert_eq!(p.allow, Allow::ALL, "the owner may do everything");
+
+    let unprotected = as_owner.save_unprotected().unwrap();
+    let mut plain = Document::open(unprotected, None).unwrap();
+    assert!(!plain.protection().unwrap().encrypted);
+    assert_eq!(page_texts(&mut plain), page_texts(&mut original));
+}
+
+#[test]
+fn an_unrestricted_file_opened_with_its_open_password_may_be_unprotected() {
+    let doc = Document::open(pdf(&[[300, 300]], "Open"), None).unwrap();
+    let protected = doc.save_protected("open-pw", Some("owner-pw"), Allow::ALL, &RANDOM).unwrap();
+    let as_user = Document::open(protected, Some("open-pw")).unwrap();
+    let p = as_user.protection().unwrap();
+    assert!(!p.opened_as_owner && !p.restricted && p.can_change());
+    let mut plain = Document::open(as_user.save_unprotected().unwrap(), None).unwrap();
+    assert_eq!(page_texts(&mut plain), vec!["Open 1".to_owned()]);
+}
+
+#[test]
+fn password_rules_are_enforced() {
+    let doc = Document::open(pdf(&[[300, 300]], "Rules"), None).unwrap();
+    assert_eq!(doc.save_protected("", None, Allow::ALL, &RANDOM).err().unwrap().code, ErrorCode::InvalidPassword);
+    assert_eq!(doc.save_protected("same", Some("same"), NOTHING, &RANDOM).err().unwrap().code, ErrorCode::InvalidPassword);
+    // An empty permissions password means "none given".
+    assert!(doc.save_protected("open-pw", Some(""), NOTHING, &RANDOM).is_ok());
+}
+
+#[test]
+fn allow_flags_map_to_the_p_bits() {
+    let bit = |p: i32, n: u32| (p >> (n - 1)) & 1 == 1;
+    assert_eq!(Allow::ALL.p_bits(), -1);
+    let p = Allow { print: false, ..Allow::ALL }.p_bits();
+    assert!(!bit(p, 3) && !bit(p, 12) && bit(p, 4) && bit(p, 5));
+    let p = Allow { copy: false, ..Allow::ALL }.p_bits();
+    assert!(!bit(p, 5) && bit(p, 10), "copying denied, accessibility extraction kept");
+    let p = Allow { modify: false, ..Allow::ALL }.p_bits();
+    assert!(!bit(p, 4) && !bit(p, 6) && !bit(p, 9) && !bit(p, 11) && bit(p, 3) && bit(p, 5));
+}
+
+#[test]
+fn error_codes_for_protection_are_part_of_the_contract() {
+    assert_eq!(ErrorCode::InvalidPassword.code(), "invalid_password");
+    assert_eq!(ErrorCode::OwnerPasswordRequired.code(), "owner_password_required");
 }
