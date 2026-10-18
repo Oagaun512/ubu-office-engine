@@ -1,5 +1,5 @@
 //! Round trip of one PDF through the engine API, for the corpus run:
-//! open → render page 1 → text of page 1 → save → reopen → same page count.
+//! open → render page 1 → text, text layer and a search on page 1 → save → reopen → same page count.
 //!
 //!   cargo run --example roundtrip -- <file.pdf> [password]
 //!
@@ -59,6 +59,12 @@ fn main() {
         }
         if let Err(e) = doc.page_text(0) {
             return report("text", pages, Some(e.to_string()));
+        }
+        if let Err(e) = doc.page_text_layer(0) {
+            return report("textlayer", pages, Some(e.to_string()));
+        }
+        if let Err(e) = doc.find_text(0, "the", false, false) {
+            return report("find", pages, Some(e.to_string()));
         }
     }
     let saved = match doc.save() {

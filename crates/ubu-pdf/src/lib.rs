@@ -10,9 +10,11 @@
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::sync::Arc;
 
+use pdfcraft_render::PageText;
 use pdfcraft_render::text::TextFilter;
 use pdfcraft_render::{OpenError, PageRenderer, RenderConfig, RenderRequest, RequestKind, effective_scale};
 
@@ -102,12 +104,36 @@ pub struct Raster {
     pub warnings: Vec<String>,
 }
 
+/// One line of a page's text layer. Coordinates are page points in view space: origin top-left,
+/// y down, after `/Rotate`, the same space as [`PageSize`], so a viewer multiplies by its zoom.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextLine {
+    pub text: String,
+    /// `[x0, y0, x1, y1]`: the union of the line's glyph boxes.
+    pub rect: [f32; 4],
+    /// Writing direction in radians, clockwise from the x axis (0 for ordinary horizontal text).
+    pub angle: f32,
+}
+
+/// One search match: a box per line it covers (a match can wrap onto the next line).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextMatch {
+    pub rects: Vec<[f32; 4]>,
+}
+
+/// At most this many matches are returned per page and query.
+pub const MAX_MATCHES_PER_PAGE: usize = 1000;
+
+/// Extracted page text kept for reuse (text layer, search, plain text), most recent last.
+const TEXT_CACHE_PAGES: usize = 64;
+
 /// An open PDF.
 pub struct Document {
     bytes: Arc<Vec<u8>>,
     password: Option<String>,
     pages: Vec<PageSize>,
     renderer: PageRenderer,
+    text_cache: VecDeque<(usize, Arc<PageText>)>,
 }
 
 impl Document {
@@ -127,7 +153,7 @@ impl Document {
                 format!("the renderer read {} pages where inspection read {}", renderer.page_count(), pages.len()),
             ));
         }
-        Ok(Self { bytes, password, pages, renderer })
+        Ok(Self { bytes, password, pages, renderer, text_cache: VecDeque::new() })
     }
 
     pub fn page_count(&self) -> usize {
@@ -163,9 +189,71 @@ impl Document {
 
     /// The text of page `index` in reading order, with line breaks between lines.
     pub fn page_text(&mut self, index: usize) -> Result<String, PdfError> {
+        Ok(self.extracted_text(index)?.plain_text())
+    }
+
+    /// The page's text as lines with boxes, in reading order: what a viewer lays over the
+    /// rendered page so text can be selected and copied.
+    pub fn page_text_layer(&mut self, index: usize) -> Result<Vec<TextLine>, PdfError> {
+        let text = self.extracted_text(index)?;
+        Ok(lines_of(&text)
+            .into_iter()
+            .map(|glyphs| {
+                let mut line = String::new();
+                for (n, &g) in glyphs.iter().enumerate() {
+                    if n > 0 && text.space_before[g] {
+                        line.push(' ');
+                    }
+                    line.push_str(&text.glyphs[g].text);
+                }
+                let [dx, dy] = text.glyphs[glyphs[0]].direction;
+                TextLine { text: line, rect: union(glyphs.iter().map(|&g| text.glyphs[g].rect)), angle: dy.atan2(dx) }
+            })
+            .collect())
+    }
+
+    /// Find `query` on page `index` with Acrobat's options (case-sensitive, whole words only).
+    /// Line breaks count as one space, so a phrase can match across lines. At most
+    /// [`MAX_MATCHES_PER_PAGE`] matches; an empty query finds nothing.
+    pub fn find_text(&mut self, index: usize, query: &str, case_sensitive: bool, whole_words: bool) -> Result<Vec<TextMatch>, PdfError> {
+        let text = self.extracted_text(index)?;
+        if query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let found = text.find_opts_limited(query, case_sensitive, whole_words, MAX_MATCHES_PER_PAGE);
+        Ok(found
+            .into_iter()
+            .map(|range| {
+                // One box per line the match touches, in line order.
+                let mut by_line: Vec<(u32, Vec<[f32; 4]>)> = Vec::new();
+                for g in range.filter(|&g| g < text.glyphs.len()) {
+                    let line = text.line_of[g];
+                    match by_line.iter_mut().find(|(l, _)| *l == line) {
+                        Some((_, rects)) => rects.push(text.glyphs[g].rect),
+                        None => by_line.push((line, vec![text.glyphs[g].rect])),
+                    }
+                }
+                by_line.sort_by_key(|(l, _)| *l);
+                TextMatch { rects: by_line.into_iter().map(|(_, rects)| union(rects.into_iter())).collect() }
+            })
+            .filter(|m| !m.rects.is_empty())
+            .collect())
+    }
+
+    /// The page's extracted text, from the cache when it was read recently.
+    fn extracted_text(&mut self, index: usize) -> Result<Arc<PageText>, PdfError> {
         self.page_size(index)?;
-        let text = self.renderer.filtered_text(index, TextFilter::default()).map_err(|e| PdfError::new(ErrorCode::RenderFailed, e))?;
-        Ok(text.plain_text())
+        if let Some(hit) = self.text_cache.iter().position(|(i, _)| *i == index).and_then(|pos| self.text_cache.remove(pos)) {
+            let text = hit.1.clone();
+            self.text_cache.push_back(hit);
+            return Ok(text);
+        }
+        let text = Arc::new(self.renderer.filtered_text(index, TextFilter::default()).map_err(|e| PdfError::new(ErrorCode::RenderFailed, e))?);
+        if self.text_cache.len() == TEXT_CACHE_PAGES {
+            self.text_cache.pop_front();
+        }
+        self.text_cache.push_back((index, text.clone()));
+        Ok(text)
     }
 
     /// Write the document back as a full, garbage-collected rewrite.
@@ -177,6 +265,20 @@ impl Document {
             .map_err(|e| PdfError::new(ErrorCode::SaveFailed, e.to_string()))?;
         pdfcraft_cos::write_full(&doc, &pdfcraft_cos::SaveOptions::default()).map_err(|e| PdfError::new(ErrorCode::SaveFailed, e.to_string()))
     }
+}
+
+/// Glyph indices grouped by line, lines in reading order, glyphs in content order within a line.
+fn lines_of(text: &PageText) -> Vec<Vec<usize>> {
+    let mut lines: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    for (g, &line) in text.line_of.iter().enumerate().take(text.glyphs.len()) {
+        lines.entry(line).or_default().push(g);
+    }
+    lines.into_values().collect()
+}
+
+/// The smallest `[x0, y0, x1, y1]` box holding every box given.
+fn union(rects: impl Iterator<Item = [f32; 4]>) -> [f32; 4] {
+    rects.reduce(|[a0, b0, a1, b1], [c0, d0, c1, d1]| [a0.min(c0), b0.min(d0), a1.max(c1), b1.max(d1)]).unwrap_or([0.0; 4])
 }
 
 fn out_of_range(index: usize, count: usize) -> PdfError {

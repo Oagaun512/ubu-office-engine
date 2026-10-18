@@ -244,6 +244,9 @@ jobs:
     name: open the artifact PR into Ubunex
     needs: [bundle]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # The token lives in this environment, which only `main` may deploy to: even an edited
+    # workflow on another branch cannot read it. Pull requests never reach this job.
+    environment: ubunex-publish
     runs-on: ubuntu-latest
     env:
       UBUNEX_PR_TOKEN: ${{ secrets.UBUNEX_PR_TOKEN }}

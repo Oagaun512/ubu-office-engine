@@ -3,8 +3,14 @@
 use ubu_pdf::{Document, ErrorCode, MAX_PIXELS, unpremultiply};
 
 /// A valid PDF with one page per entry of `pages`, each `[w, h]` points, showing `text` in
-/// Helvetica. Offsets in the cross-reference table are computed, not hand-typed.
+/// Helvetica from 40 pt below the top. Each `\n` in `text` starts a new line 30 pt lower; the
+/// last line ends with the page number. Offsets in the cross-reference table are computed.
 fn pdf(pages: &[[u32; 2]], text: &str) -> Vec<u8> {
+    pdf_rotated(pages, text, 0)
+}
+
+/// [`pdf`] with every page carrying `/Rotate rotate`.
+fn pdf_rotated(pages: &[[u32; 2]], text: &str, rotate: u32) -> Vec<u8> {
     let n = pages.len();
     // Objects: 1 catalog, 2 page tree, 3 font, then (page, content) pairs.
     let mut objects: Vec<String> = Vec::new();
@@ -15,9 +21,16 @@ fn pdf(pages: &[[u32; 2]], text: &str) -> Vec<u8> {
     for (i, [w, h]) in pages.iter().enumerate() {
         let content_id = 5 + 2 * i;
         objects.push(format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>"
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Rotate {rotate} /Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>"
         ));
-        let stream = format!("BT /F1 24 Tf 20 {} Td ({text} {}) Tj ET", h.saturating_sub(40), i + 1);
+        let lines: Vec<&str> = text.split('\n').collect();
+        let shown = lines
+            .iter()
+            .enumerate()
+            .map(|(n, l)| if n + 1 == lines.len() { format!("({l} {}) Tj", i + 1) } else { format!("({l}) Tj 0 -30 Td") })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let stream = format!("BT /F1 24 Tf 20 {} Td {shown} ET", h.saturating_sub(40));
         objects.push(format!("<< /Length {} >>\nstream\n{stream}\nendstream", stream.len()));
     }
     let mut out = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n".to_vec();
@@ -124,4 +137,74 @@ fn error_codes_are_the_contract_strings() {
     for (code, s) in all {
         assert_eq!(code.code(), s);
     }
+}
+
+#[test]
+fn text_layer_has_lines_in_reading_order_with_boxes_in_view_space() {
+    let mut doc = Document::open(pdf(&[[612, 792]], "First line\nSecond line"), None).unwrap();
+    let lines = doc.page_text_layer(0).unwrap();
+    let texts: Vec<&str> = lines.iter().map(|l| l.text.trim()).collect();
+    assert_eq!(texts, ["First line", "Second line 1"]);
+    let [x0, y0, x1, y1] = lines[0].rect;
+    assert!((x0 - 20.0).abs() < 3.0, "first line starts at x = 20 pt, got {x0}");
+    assert!(y0 >= 0.0 && y1 <= 80.0 && y0 < y1, "first line sits near the top (y down): {:?}", lines[0].rect);
+    assert!(x1 > x0 && x1 <= 612.0);
+    assert!(lines[1].rect[1] > lines[0].rect[1], "the second line is lower on the page");
+    assert!(lines.iter().all(|l| l.angle.abs() < 1e-3), "horizontal text has angle 0");
+}
+
+#[test]
+fn text_layer_of_a_rotated_page_stays_inside_the_rotated_page() {
+    let mut doc = Document::open(pdf_rotated(&[[612, 792]], "Turned", 90), None).unwrap();
+    let size = doc.page_size(0).unwrap();
+    assert_eq!((size.width_pt, size.height_pt), (792.0, 612.0), "/Rotate 90 swaps the displayed size");
+    let lines = doc.page_text_layer(0).unwrap();
+    assert_eq!(lines.len(), 1);
+    let [x0, y0, x1, y1] = lines[0].rect;
+    assert!(x0 >= 0.0 && y0 >= 0.0 && x1 <= 792.0 && y1 <= 612.0, "{:?}", lines[0].rect);
+    assert!(lines[0].angle.abs() > 1.0, "rotated text is not horizontal: angle {}", lines[0].angle);
+}
+
+#[test]
+fn find_text_honours_case_and_whole_word_options() {
+    let mut doc = Document::open(pdf(&[[612, 792]], "Hello world hello"), None).unwrap();
+    assert_eq!(doc.find_text(0, "hello", false, false).unwrap().len(), 2);
+    assert_eq!(doc.find_text(0, "hello", true, false).unwrap().len(), 1);
+    assert_eq!(doc.find_text(0, "hell", false, false).unwrap().len(), 2);
+    assert_eq!(doc.find_text(0, "hell", false, true).unwrap().len(), 0, "whole words only");
+    assert!(doc.find_text(0, "absent", false, false).unwrap().is_empty());
+    assert!(doc.find_text(0, "   ", false, false).unwrap().is_empty(), "a blank query finds nothing");
+}
+
+#[test]
+fn find_text_boxes_sit_inside_their_line() {
+    let mut doc = Document::open(pdf(&[[612, 792]], "Hello world"), None).unwrap();
+    let line = doc.page_text_layer(0).unwrap()[0].rect;
+    let found = doc.find_text(0, "world", false, false).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].rects.len(), 1);
+    let [x0, y0, x1, y1] = found[0].rects[0];
+    let eps = 0.5;
+    assert!(x0 >= line[0] - eps && y0 >= line[1] - eps && x1 <= line[2] + eps && y1 <= line[3] + eps, "{:?} in {line:?}", found[0].rects[0]);
+    assert!(x0 > line[0] + 20.0, "\"world\" is not at the start of the line");
+}
+
+#[test]
+fn a_match_across_a_line_break_gets_one_box_per_line() {
+    let mut doc = Document::open(pdf(&[[612, 792]], "alpha beta\ngamma"), None).unwrap();
+    let found = doc.find_text(0, "beta gamma", false, false).unwrap();
+    assert_eq!(found.len(), 1, "a line break counts as one space");
+    assert_eq!(found[0].rects.len(), 2);
+    assert!(found[0].rects[1][1] > found[0].rects[0][1], "the second box is on the lower line");
+}
+
+#[test]
+fn text_layer_and_search_reject_bad_pages_and_agree_with_page_text() {
+    let mut doc = Document::open(pdf(&[[612, 792]], "Cached text"), None).unwrap();
+    assert_eq!(doc.page_text_layer(1).err().unwrap().code, ErrorCode::OutOfRange);
+    assert_eq!(doc.find_text(1, "x", false, false).err().unwrap().code, ErrorCode::OutOfRange);
+    let first = doc.page_text(0).unwrap();
+    let layer = doc.page_text_layer(0).unwrap();
+    assert_eq!(doc.page_text(0).unwrap(), first, "the cached text is the same text");
+    assert_eq!(layer.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n").trim(), first.trim());
 }
