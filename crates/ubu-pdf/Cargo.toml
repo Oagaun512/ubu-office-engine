@@ -1,0 +1,16 @@
+[package]
+name = "ubu-pdf"
+description = "Headless PDF engine for Ubu Office: open, render, extract text, save"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+pdfcraft-render = { workspace = true }
+pdfcraft-cos = { workspace = true }

@@ -1,0 +1,6 @@
+[submodule "upstream/pdfcraft"]
+	path = upstream/pdfcraft
+	url = https://github.com/Oagaun512/pdfcraft
+[submodule "upstream/craft-libs"]
+	path = upstream/craft-libs
+	url = https://github.com/Oagaun512/craft-libs
