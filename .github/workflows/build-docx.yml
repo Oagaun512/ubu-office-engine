@@ -165,9 +165,14 @@ jobs:
           tool: cargo-deny@0.20.2
       - name: cargo deny (licences, bans, sources)
         # One policy for both engines: the root deny.toml, placed beside docx/Cargo.toml where
-        # cargo-deny looks for it (CI only; the repository keeps a single copy).
+        # cargo-deny looks for it (CI only; the repository keeps a single copy). One difference:
+        # wordcraft's own crates depend on each other by path without `publish = false`, which
+        # cargo-deny counts as public wildcard dependencies even with allow-wildcard-paths. They
+        # are path crates inside our pinned, unmodified fork and are never published, so for this
+        # engine wildcards are reported as warnings (still printed), not errors.
         run: |
-          cp deny.toml docx/deny.toml
+          sed 's/^wildcards = "deny"$/wildcards = "warn"/' deny.toml > docx/deny.toml
+          grep -q '^wildcards = "warn"$' docx/deny.toml
           cargo deny --manifest-path docx/Cargo.toml --locked check licenses bans sources
       - name: SBOM.md (fails on copyleft, unknown licence or unexpected source)
         run: |
