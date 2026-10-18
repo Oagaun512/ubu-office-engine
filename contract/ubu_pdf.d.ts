@@ -45,14 +45,46 @@ export class PdfDocument {
      */
     pageText(page: number): string;
     /**
+     * How the document is protected.
+     */
+    protection(): Protection;
+    /**
      * Render a page at `scale` device pixels per point (1 = 72 dpi). Straight-alpha RGBA.
      */
     renderPage(page: number, scale: number): RenderedPage;
+    /**
+     * A copy protected with AES-256. `permissionsPassword` empty or absent: a random one when
+     * anything is denied, else the open password. Throws a `PdfError` (`code`:
+     * invalid_password, owner_password_required, save_failed).
+     */
+    saveProtected(open_password: string, permissions_password: string | null | undefined, allow_print: boolean, allow_copy: boolean, allow_modify: boolean): Uint8Array;
+    /**
+     * A copy with the protection removed. Throws `owner_password_required` when the document
+     * was opened with an open password that is denied anything.
+     */
+    saveUnprotected(): Uint8Array;
     /**
      * The whole document written back as a new PDF (full rewrite).
      */
     save(): Uint8Array;
     readonly pageCount: number;
+}
+
+/**
+ * How a document is protected. `canChange`: its protection may be removed or changed (opened
+ * with the owner password, or the open password is denied nothing).
+ */
+export class Protection {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    readonly allowCopy: boolean;
+    readonly allowModify: boolean;
+    readonly allowPrint: boolean;
+    readonly canChange: boolean;
+    readonly encrypted: boolean;
+    readonly openedAsOwner: boolean;
+    readonly restricted: boolean;
 }
 
 /**

@@ -7,7 +7,7 @@
 use wasm_bindgen::Clamped;
 use wasm_bindgen::prelude::*;
 
-use crate::{Document, PdfError};
+use crate::{Allow, Document, ErrorCode, PdfError};
 
 /// A thrown `Error` with `name = "PdfError"` and a machine-readable `code` (see `ErrorCode`).
 fn js_error(e: PdfError) -> JsValue {
@@ -87,6 +87,67 @@ impl PdfDocument {
     pub fn save(&self) -> Result<Vec<u8>, JsValue> {
         self.inner.save().map_err(js_error)
     }
+
+    /// How the document is protected.
+    pub fn protection(&self) -> Result<Protection, JsValue> {
+        let p = self.inner.protection().map_err(js_error)?;
+        Ok(Protection {
+            encrypted: p.encrypted,
+            opened_as_owner: p.opened_as_owner,
+            restricted: p.restricted,
+            can_change: p.can_change(),
+            allow_print: p.allow.print,
+            allow_copy: p.allow.copy,
+            allow_modify: p.allow.modify,
+        })
+    }
+
+    /// A copy protected with AES-256. `permissionsPassword` empty or absent: a random one when
+    /// anything is denied, else the open password. Throws a `PdfError` (`code`:
+    /// invalid_password, owner_password_required, save_failed).
+    #[wasm_bindgen(js_name = saveProtected)]
+    pub fn save_protected(
+        &self,
+        open_password: &str,
+        permissions_password: Option<String>,
+        allow_print: bool,
+        allow_copy: bool,
+        allow_modify: bool,
+    ) -> Result<Vec<u8>, JsValue> {
+        // Keys, salts and any random owner password come from the browser's CSPRNG.
+        let mut random = [0u8; 64];
+        getrandom::fill(&mut random).map_err(|e| js_error(PdfError::new(ErrorCode::SaveFailed, format!("no secure random numbers: {e}"))))?;
+        let allow = Allow { print: allow_print, copy: allow_copy, modify: allow_modify };
+        self.inner.save_protected(open_password, permissions_password.as_deref(), allow, &random).map_err(js_error)
+    }
+
+    /// A copy with the protection removed. Throws `owner_password_required` when the document
+    /// was opened with an open password that is denied anything.
+    #[wasm_bindgen(js_name = saveUnprotected)]
+    pub fn save_unprotected(&self) -> Result<Vec<u8>, JsValue> {
+        self.inner.save_unprotected().map_err(js_error)
+    }
+}
+
+/// How a document is protected. `canChange`: its protection may be removed or changed (opened
+/// with the owner password, or the open password is denied nothing).
+#[wasm_bindgen]
+#[derive(Clone, Copy)]
+pub struct Protection {
+    #[wasm_bindgen(readonly)]
+    pub encrypted: bool,
+    #[wasm_bindgen(readonly, js_name = openedAsOwner)]
+    pub opened_as_owner: bool,
+    #[wasm_bindgen(readonly)]
+    pub restricted: bool,
+    #[wasm_bindgen(readonly, js_name = canChange)]
+    pub can_change: bool,
+    #[wasm_bindgen(readonly, js_name = allowPrint)]
+    pub allow_print: bool,
+    #[wasm_bindgen(readonly, js_name = allowCopy)]
+    pub allow_copy: bool,
+    #[wasm_bindgen(readonly, js_name = allowModify)]
+    pub allow_modify: bool,
 }
 
 /// A page size in PDF points.

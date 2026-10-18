@@ -1,6 +1,6 @@
 //! Headless PDF engine for Ubu Office.
 //!
-//! [`Document`] is the whole API: open, page sizes, render, text, save. It is plain Rust so it
+//! [`Document`] is the whole API: open, page sizes, render, text, save, and password protection. It is plain Rust so it
 //! runs in native tests and the round-trip corpus run; the browser binding over it (`wasm`)
 //! adds nothing but type conversion.
 //!
@@ -39,6 +39,12 @@ pub enum ErrorCode {
     RenderFailed,
     /// The document could not be written back.
     SaveFailed,
+    /// A password given to protect a document breaks the rules (empty open password, or a
+    /// permissions password equal to the open password when restrictions are set).
+    InvalidPassword,
+    /// The document restricts what its open password allows; removing or changing its
+    /// protection needs the owner (permissions) password (Ubu Office decision D11).
+    OwnerPasswordRequired,
 }
 
 impl ErrorCode {
@@ -51,6 +57,8 @@ impl ErrorCode {
             Self::OutOfRange => "out_of_range",
             Self::RenderFailed => "render_failed",
             Self::SaveFailed => "save_failed",
+            Self::InvalidPassword => "invalid_password",
+            Self::OwnerPasswordRequired => "owner_password_required",
         }
     }
 }
@@ -119,6 +127,63 @@ pub struct TextLine {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextMatch {
     pub rects: Vec<[f32; 4]>,
+}
+
+/// What anyone who opens a protected PDF with its open password may do. Viewers honour these
+/// flags; nothing can enforce them (§7.6.4.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Allow {
+    /// Print, at any quality.
+    pub print: bool,
+    /// Copy or extract text and images (extraction for accessibility is always allowed).
+    pub copy: bool,
+    /// Change the document: edit, annotate, fill forms, insert, rotate or delete pages.
+    pub modify: bool,
+}
+
+impl Allow {
+    pub const ALL: Self = Self { print: true, copy: true, modify: true };
+
+    /// The `/P` bits (Table 22): every bit set, then the ones these flags deny cleared. The
+    /// reserved bits are normalised by the encryption layer.
+    pub fn p_bits(self) -> i32 {
+        let mut p: i32 = -1;
+        let clear = |p: &mut i32, bit: u32| *p &= !(1 << (bit - 1));
+        if !self.print {
+            clear(&mut p, 3);
+            clear(&mut p, 12);
+        }
+        if !self.copy {
+            clear(&mut p, 5);
+        }
+        if !self.modify {
+            for bit in [4, 6, 9, 11] {
+                clear(&mut p, bit);
+            }
+        }
+        p
+    }
+}
+
+/// How the open document is protected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Protection {
+    /// The file has an `/Encrypt` dictionary (it needed, or accepted, a password to open).
+    pub encrypted: bool,
+    /// It was opened with its owner (permissions) password, or it is not encrypted.
+    pub opened_as_owner: bool,
+    /// The open password alone is denied something (printing, copying, changing...).
+    pub restricted: bool,
+    /// What the password it was opened with allows.
+    pub allow: Allow,
+}
+
+impl Protection {
+    /// Whether its protection may be removed or changed (decision D11): only with the owner
+    /// password, or when the open password is not denied anything.
+    pub fn can_change(&self) -> bool {
+        self.opened_as_owner || !self.restricted
+    }
 }
 
 /// At most this many matches are returned per page and query.
@@ -261,10 +326,120 @@ impl Document {
     /// The object layer is opened here rather than in `open`, so a file the renderer can show
     /// but the object layer cannot parse still opens for viewing; only saving it fails.
     pub fn save(&self) -> Result<Vec<u8>, PdfError> {
-        let doc = pdfcraft_cos::Document::open_with_password(self.bytes.clone(), self.password.as_deref())
-            .map_err(|e| PdfError::new(ErrorCode::SaveFailed, e.to_string()))?;
-        pdfcraft_cos::write_full(&doc, &pdfcraft_cos::SaveOptions::default()).map_err(|e| PdfError::new(ErrorCode::SaveFailed, e.to_string()))
+        write(&self.object_layer()?)
     }
+
+    /// How the document is protected, read by the object layer (which also does the writing).
+    pub fn protection(&self) -> Result<Protection, PdfError> {
+        Ok(protection_of(&self.object_layer()?))
+    }
+
+    /// A copy protected with AES-256 (PDF 2.0, V5/R6): `open_password` is needed to open it, and
+    /// `allow` says what that password may do.
+    ///
+    /// The owner (permissions) password (decision D12) is `permissions_password` when given;
+    /// otherwise, when `allow` restricts anything, a random one nobody is shown, so the
+    /// restrictions cannot be lifted; with no restrictions it is the open password itself.
+    /// `random` is 64 bytes of entropy (32 for the keys and salts, 32 for a random owner
+    /// password), supplied by the caller so this crate needs no OS access and tests are
+    /// deterministic.
+    ///
+    /// A document that is already protected and restricted needs its owner password to be
+    /// re-protected (D11), as re-protecting would otherwise drop its restrictions.
+    pub fn save_protected(
+        &self,
+        open_password: &str,
+        permissions_password: Option<&str>,
+        allow: Allow,
+        random: &[u8; 64],
+    ) -> Result<Vec<u8>, PdfError> {
+        if open_password.is_empty() {
+            return Err(PdfError::new(ErrorCode::InvalidPassword, "the open password is empty"));
+        }
+        let restricted = allow != Allow::ALL;
+        let owner = match permissions_password.filter(|p| !p.is_empty()) {
+            Some(p) if p == open_password => {
+                return Err(PdfError::new(ErrorCode::InvalidPassword, "the permissions password must differ from the open password"));
+            }
+            Some(p) => p.to_owned(),
+            None if restricted => hex(&random[32..]),
+            None => open_password.to_owned(),
+        };
+        let mut doc = self.object_layer()?;
+        require_change_allowed(&doc)?;
+        let mut seed = [0u8; 32];
+        seed.copy_from_slice(&random[..32]);
+        doc.set_encryption(&pdfcraft_cos::NewEncryption {
+            algorithm: pdfcraft_cos::Algorithm::Aes256,
+            user_password: open_password,
+            owner_password: &owner,
+            permissions: allow.p_bits(),
+            encrypt_metadata: true,
+            seed,
+        })
+        .map_err(|e| PdfError::new(ErrorCode::SaveFailed, e.to_string()))?;
+        write(&doc)
+    }
+
+    /// A copy with the protection removed. Needs the owner password when the open password is
+    /// restricted (D11); fails with `OwnerPasswordRequired` otherwise.
+    pub fn save_unprotected(&self) -> Result<Vec<u8>, PdfError> {
+        let mut doc = self.object_layer()?;
+        require_change_allowed(&doc)?;
+        doc.remove_encryption();
+        write(&doc)
+    }
+
+    /// The upstream object layer over the same bytes and password. Opened on demand rather than
+    /// in `open`, so a file the renderer can show but the object layer cannot parse still opens
+    /// for viewing; only writing it fails.
+    fn object_layer(&self) -> Result<pdfcraft_cos::Document, PdfError> {
+        pdfcraft_cos::Document::open_with_password(self.bytes.clone(), self.password.as_deref())
+            .map_err(|e| PdfError::new(ErrorCode::SaveFailed, e.to_string()))
+    }
+}
+
+/// A full, garbage-collected rewrite with the document's output security.
+fn write(doc: &pdfcraft_cos::Document) -> Result<Vec<u8>, PdfError> {
+    pdfcraft_cos::write_full(doc, &pdfcraft_cos::SaveOptions::default()).map_err(|e| PdfError::new(ErrorCode::SaveFailed, e.to_string()))
+}
+
+fn protection_of(doc: &pdfcraft_cos::Document) -> Protection {
+    match doc.permissions() {
+        None => Protection { encrypted: false, opened_as_owner: true, restricted: false, allow: Allow::ALL },
+        Some(p) => {
+            // What the open password alone allows: the same bits without the owner override.
+            let open_only = pdfcraft_cos::Permissions { bits: p.bits, owner: false };
+            let restricted = !(open_only.print()
+                && open_only.print_high_quality()
+                && open_only.copy()
+                && open_only.modify()
+                && open_only.annotate()
+                && open_only.fill_forms()
+                && open_only.assemble());
+            Protection {
+                encrypted: true,
+                opened_as_owner: p.owner,
+                restricted,
+                allow: Allow { print: p.print(), copy: p.copy(), modify: p.modify() },
+            }
+        }
+    }
+}
+
+fn require_change_allowed(doc: &pdfcraft_cos::Document) -> Result<(), PdfError> {
+    if protection_of(doc).can_change() {
+        Ok(())
+    } else {
+        Err(PdfError::new(
+            ErrorCode::OwnerPasswordRequired,
+            "this document restricts what its open password allows; open it with its owner (permissions) password to change its protection",
+        ))
+    }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Glyph indices grouped by line, lines in reading order, glyphs in content order within a line.
