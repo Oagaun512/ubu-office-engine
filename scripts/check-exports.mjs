@@ -52,7 +52,11 @@ const exported = new Set(WebAssembly.Module.exports(wasm).map((e) => e.name));
 const declared = new Set(
   [...readFileSync(join(pkg, `${name}_bg.wasm.d.ts`), "utf8").matchAll(/export (?:const|function) ([A-Za-z0-9_$]+)/g)].map((m) => m[1]),
 );
-for (const e of exported) if (!declared.has(e)) errors.push(`wasm export ${e} is not declared in ${name}_bg.wasm.d.ts`);
+// Globals that Rust's wasm32 panic=abort support exports and the glue does not use: a flag set
+// when the instance has aborted (a worker can read it to know it must start a fresh instance).
+const UNDECLARED_GLOBALS = new Set(["__abort_handler", "__instance_terminated"]);
+const kinds = new Map(WebAssembly.Module.exports(wasm).map((e) => [e.name, e.kind]));
+for (const e of exported) if (!declared.has(e) && !(UNDECLARED_GLOBALS.has(e) && kinds.get(e) === "global")) errors.push(`wasm export ${e} is not declared in ${name}_bg.wasm.d.ts`);
 for (const d of declared) if (!exported.has(d)) errors.push(`${name}_bg.wasm.d.ts declares ${d}, which the wasm does not export`);
 
 // 3. Imports.
