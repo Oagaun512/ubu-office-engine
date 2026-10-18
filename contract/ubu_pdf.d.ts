@@ -24,6 +24,11 @@ export class PdfDocument {
     free(): void;
     [Symbol.dispose](): void;
     /**
+     * Find `query` on a page. Returns 5 numbers per box: match index, x0, y0, x1, y1 (page
+     * points, y down). A match that wraps onto the next line has one box per line.
+     */
+    findText(page: number, query: string, case_sensitive: boolean, whole_words: boolean): Float32Array;
+    /**
      * Open a PDF. Throws a `PdfError` (`code`: invalid, needs_password, wrong_password, unsupported).
      */
     static open(bytes: Uint8Array, password?: string | null): PdfDocument;
@@ -31,6 +36,10 @@ export class PdfDocument {
      * Displayed page size in points (after rotation).
      */
     pageSize(page: number): PageSize;
+    /**
+     * The page's text as lines with boxes, for a selectable text layer over the rendered page.
+     */
+    pageTextLayer(page: number): TextLayer;
     /**
      * The page's text in reading order, lines separated by `\n`.
      */
@@ -63,6 +72,25 @@ export class RenderedPage {
     warnings(): string[];
     readonly height: number;
     readonly width: number;
+}
+
+/**
+ * A page's text layer: `lineCount` lines, each with its text and 5 numbers in `boxes()`:
+ * x0, y0, x1, y1 (page points, origin top-left, y down) and the writing angle in radians.
+ */
+export class TextLayer {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * 5 numbers per line: x0, y0, x1, y1, angle.
+     */
+    boxes(): Float32Array;
+    /**
+     * All lines' text, in order.
+     */
+    lines(): string[];
+    readonly lineCount: number;
 }
 
 /**
