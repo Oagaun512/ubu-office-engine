@@ -37,13 +37,13 @@ export class PdfDocument {
      */
     pageSize(page: number): PageSize;
     /**
-     * The page's text in reading order, lines separated by `\n`.
-     */
-    pageText(page: number): string;
-    /**
      * The page's text as lines with boxes, for a selectable text layer over the rendered page.
      */
     pageTextLayer(page: number): TextLayer;
+    /**
+     * The page's text in reading order, lines separated by `\n`.
+     */
+    pageText(page: number): string;
     /**
      * Render a page at `scale` device pixels per point (1 = 72 dpi). Straight-alpha RGBA.
      */
