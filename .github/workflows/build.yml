@@ -40,8 +40,8 @@ jobs:
           done
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: wasm32 compile check
-        run: cargo check --locked -p ubu-pdf --target wasm32-unknown-unknown
+      - name: wasm32 clippy (covers the wasm-bindgen layer)
+        run: cargo clippy --locked -p ubu-pdf --target wasm32-unknown-unknown -- -D warnings
       - name: wasm32 dependency report
         run: |
           {
@@ -64,3 +64,67 @@ jobs:
         with:
           key: test
       - run: cargo test --locked -p ubu-pdf
+
+  wasm:
+    name: wasm build, bindings, size, export check
+    runs-on: ubuntu-latest
+    env:
+      WASM_BINDGEN_VERSION: 0.2.129 # must equal the wasm-bindgen crate version in Cargo.lock
+      BINARYEN_VERSION: version_133
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm
+      - name: Install wasm-bindgen CLI
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}
+      - name: Install binaryen (wasm-opt)
+        run: |
+          base=https://github.com/WebAssembly/binaryen/releases/download/$BINARYEN_VERSION
+          file=binaryen-$BINARYEN_VERSION-x86_64-linux.tar.gz
+          curl -sSfLO "$base/$file" && curl -sSfLO "$base/$file.sha256"
+          sha256sum -c "$file.sha256"
+          tar xzf "$file"
+          echo "$PWD/binaryen-$BINARYEN_VERSION/bin" >> "$GITHUB_PATH"
+      - name: Lockfile and CLI agree on wasm-bindgen
+        run: |
+          locked=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')
+          test "$locked" = "$WASM_BINDGEN_VERSION" || { echo "::error::Cargo.lock has wasm-bindgen $locked, CI installs $WASM_BINDGEN_VERSION"; exit 1; }
+      - name: cargo build (wasm32, release)
+        env:
+          UBU_ENGINE_COMMIT: ${{ github.sha }}
+        run: |
+          export UBU_PDF_UPSTREAM_COMMIT=$(git -C upstream/pdfcraft rev-parse HEAD)
+          cargo build --locked --release -p ubu-pdf --target wasm32-unknown-unknown
+      - name: wasm-bindgen --target web
+        run: wasm-bindgen target/wasm32-unknown-unknown/release/ubu_pdf.wasm --target web --typescript --out-dir pkg
+      - name: wasm-opt -Oz
+        run: |
+          cp pkg/ubu_pdf_bg.wasm pkg/ubu_pdf_bg.unopt.wasm
+          wasm-opt -Oz --strip-debug --strip-producers \
+            --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
+            --enable-mutable-globals --enable-reference-types --enable-multivalue \
+            pkg/ubu_pdf_bg.unopt.wasm -o pkg/ubu_pdf_bg.wasm
+      - name: Size report
+        run: |
+          {
+            echo "## ubu-pdf sizes"
+            echo
+            node scripts/size-report.mjs pkg/ubu_pdf_bg.wasm pkg/ubu_pdf.js
+            echo
+            echo "Before wasm-opt: $(stat -c %s pkg/ubu_pdf_bg.unopt.wasm) B"
+          } | tee pkg/SIZE.md >> "$GITHUB_STEP_SUMMARY"
+          rm pkg/ubu_pdf_bg.unopt.wasm
+      - name: Export check (bindings vs contract, exports, browser-safe imports)
+        run: node scripts/check-exports.mjs pkg ubu_pdf contract/ubu_pdf.d.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ubu-pdf-pkg
+          path: pkg/
+          if-no-files-found: error
