@@ -67,7 +67,8 @@ for (const id of seen) {
   }
   if (!files.length) missing.push(`${p.name} ${p.version} (${p.license})`);
   for (const f of files) {
-    const text = readFileSync(join(dir, f), "utf8").replace(/\r\n/g, "\n").trim();
+    // Trailing spaces are dropped (Ubunex's CI rejects whitespace errors); the words are untouched.
+    const text = readFileSync(join(dir, f), "utf8").replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
     if (!texts.has(text)) texts.set(text, []);
     texts.get(text).push(`${p.name} ${p.version} — ${f.replaceAll("\\", "/")}`);
   }
