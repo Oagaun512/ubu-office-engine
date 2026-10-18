@@ -58,8 +58,9 @@ fn renders_straight_alpha_pixels_with_ink_on_the_page() {
     let r = doc.render_page(0, 1.0).unwrap();
     assert_eq!((r.width, r.height), (size.width_pt.round() as u32, size.height_pt.round() as u32));
     assert_eq!(r.rgba.len(), (r.width * r.height * 4) as usize);
-    assert!(r.rgba.chunks_exact(4).all(|px| px[3] == 255), "an opaque white page");
-    let dark = r.rgba.chunks_exact(4).filter(|px| px[0] < 100).count();
+    let pixels = r.rgba.as_chunks::<4>().0;
+    assert!(pixels.iter().all(|px| px[3] == 255), "an opaque white page");
+    let dark = pixels.iter().filter(|px| px[0] < 100).count();
     assert!(dark > 50, "the text left ink ({dark} dark pixels)");
 }
 

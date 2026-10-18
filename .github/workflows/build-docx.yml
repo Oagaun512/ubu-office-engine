@@ -164,7 +164,11 @@ jobs:
         with:
           tool: cargo-deny@0.20.2
       - name: cargo deny (licences, bans, sources)
-        run: cargo deny --manifest-path docx/Cargo.toml --locked check --config deny.toml licenses bans sources
+        # One policy for both engines: the root deny.toml, placed beside docx/Cargo.toml where
+        # cargo-deny looks for it (CI only; the repository keeps a single copy).
+        run: |
+          cp deny.toml docx/deny.toml
+          cargo deny --manifest-path docx/Cargo.toml --locked check licenses bans sources
       - name: SBOM.md (fails on copyleft, unknown licence or unexpected source)
         run: |
           mkdir -p out
