@@ -9,7 +9,7 @@
 // - THIRD-PARTY.md: the licence and notice files of every crate linked for wasm32, grouped by
 //   identical text so each text appears once with the crates it covers.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { engine } from "./engines.mjs";
 
@@ -22,7 +22,9 @@ if (!crate || !out) {
 function copy(from, to) {
   if (!existsSync(from)) throw new Error(`missing licence file ${from}`);
   mkdirSync(dirname(to), { recursive: true });
-  copyFileSync(from, to);
+  // Trailing spaces are dropped, as in THIRD-PARTY.md (Ubunex's CI rejects whitespace errors;
+  // some upstream OFL texts end lines with a space). The words and line endings are untouched.
+  writeFileSync(to, readFileSync(from, "utf8").replace(/[ \t]+(\r?)$/gm, "$1"));
 }
 
 for (const f of ["LICENSE-MIT", "LICENSE-APACHE", "NOTICE"]) copy(f, join(out, "ubu-office-engine", f));
