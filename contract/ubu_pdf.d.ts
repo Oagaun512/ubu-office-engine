@@ -53,10 +53,6 @@ export class PdfDocument {
      */
     renderPage(page: number, scale: number): RenderedPage;
     /**
-     * The whole document written back as a new PDF (full rewrite).
-     */
-    save(): Uint8Array;
-    /**
      * A copy protected with AES-256. `permissionsPassword` empty or absent: a random one when
      * anything is denied, else the open password. Throws a `PdfError` (`code`:
      * invalid_password, owner_password_required, save_failed).
@@ -67,6 +63,10 @@ export class PdfDocument {
      * was opened with an open password that is denied anything.
      */
     saveUnprotected(): Uint8Array;
+    /**
+     * The whole document written back as a new PDF (full rewrite).
+     */
+    save(): Uint8Array;
     readonly pageCount: number;
 }
 
