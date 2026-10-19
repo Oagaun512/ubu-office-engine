@@ -121,3 +121,63 @@ fn error_codes_are_the_contract() {
     ];
     assert_eq!(codes.map(ErrorCode::code), ["invalid", "needs_password", "wrong_password", "out_of_range", "export_failed", "save_failed"]);
 }
+
+// ── Text layer and find (Ubu Office Phase 3, D3) ─────────────────────────────────────────────
+
+#[test]
+fn text_layer_has_each_line_with_a_box_inside_the_page() {
+    let doc = Document::open(&docx(&[Some("First line"), Some("Second line"), None, Some("Next page")]), "t.docx", None).unwrap();
+    let size = doc.page_size(0).unwrap();
+    let lines = doc.page_text_layer(0).unwrap();
+    assert_eq!(lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), ["First line", "Second line"]);
+    for l in &lines {
+        let [x0, y0, x1, y1] = l.rect;
+        assert!(0.0 <= x0 && x0 < x1 && x1 <= size.width_pt, "x inside the page: {:?}", l.rect);
+        assert!(0.0 <= y0 && y0 < y1 && y1 <= size.height_pt, "y inside the page: {:?}", l.rect);
+        assert_eq!(l.angle, 0.0);
+    }
+    assert!(lines[0].rect[1] < lines[1].rect[1], "the second line is lower");
+    assert_eq!(doc.page_text_layer(1).unwrap()[0].text, "Next page");
+    assert_eq!(doc.page_text_layer(2).err().unwrap().code, ErrorCode::OutOfRange);
+}
+
+#[test]
+fn find_honours_case_and_whole_words_with_boxes_inside_their_line() {
+    let doc = Document::open(&docx(&[Some("Ubu reads ubu and Ubuntu")]), "t.docx", None).unwrap();
+    let line = doc.page_text_layer(0).unwrap()[0].rect;
+    let all = doc.find_text(0, "ubu", false, false).unwrap();
+    assert_eq!(all.len(), 3, "Ubu, ubu, and the start of Ubuntu");
+    assert_eq!(doc.find_text(0, "ubu", true, false).unwrap().len(), 1, "match case");
+    assert_eq!(doc.find_text(0, "ubu", false, true).unwrap().len(), 2, "whole words leave out Ubuntu");
+    assert!(doc.find_text(0, "   ", false, false).unwrap().is_empty());
+    let mut last_x = f32::NEG_INFINITY;
+    for m in &all {
+        let [x0, y0, x1, y1] = m.rects[0];
+        assert!(x0 >= line[0] - 0.01 && x1 <= line[2] + 0.01 && x0 < x1, "inside the line: {:?} in {line:?}", m.rects[0]);
+        assert_eq!((y0, y1), (line[1], line[3]));
+        assert!(x0 > last_x, "matches in reading order");
+        last_x = x0;
+    }
+    let ubuntu = doc.find_text(0, "Ubuntu", true, true).unwrap();
+    assert_eq!(ubuntu.len(), 1);
+    assert!(ubuntu[0].rects[0][2] - ubuntu[0].rects[0][0] > all[0].rects[0][2] - all[0].rects[0][0], "a longer word has a wider box");
+    assert_eq!(doc.find_text(1, "x", false, false).err().unwrap().code, ErrorCode::OutOfRange);
+}
+
+#[test]
+fn text_layer_agrees_with_page_text() {
+    let doc = Document::open(&docx(&[Some("Alpha beta"), Some("Gamma delta")]), "t.docx", None).unwrap();
+    let joined = doc.page_text_layer(0).unwrap().into_iter().map(|l| l.text).collect::<Vec<_>>().join("\n");
+    assert_eq!(joined.trim(), doc.page_text(0).unwrap().trim());
+}
+
+#[test]
+fn a_break_at_the_end_of_a_line_is_not_copied() {
+    // The paragraph before a page break ends with the break character (U+000C).
+    let doc = Document::open(&docx(&[Some("Before"), None, Some("After")]), "t.docx", None).unwrap();
+    for page in 0..doc.page_count() {
+        for l in doc.page_text_layer(page).unwrap() {
+            assert!(!l.text.chars().any(|c| c.is_control() && c != '\t'), "no control characters: {:?}", l.text);
+        }
+    }
+}
