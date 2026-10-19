@@ -452,12 +452,35 @@ fn open_error(message: &str) -> SheetsError {
         ErrorCode::NeedsPassword
     } else if message.contains(io::WRONG_PASSWORD) {
         ErrorCode::WrongPassword
-    } else if message.contains("encryption, which") {
+    } else if UNSUPPORTED.iter().any(|m| message.contains(m)) {
         ErrorCode::Unsupported
     } else {
         ErrorCode::Invalid
     };
     SheetsError::new(code, message)
+}
+
+/// What the engine says about files it recognises but cannot open yet (the S2 corpus found
+/// each): an encryption it doesn't implement, a password-protected .xls, an Excel 5.0/95 file.
+const UNSUPPORTED: [&str; 3] = ["encryption, which", "can't open encrypted .xls", "(BIFF5) are not supported"];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_messages_map_to_codes() {
+        let code = |m: &str| open_error(m).code;
+        assert_eq!(code(&format!("'a.xlsx' {}", io::PASSWORD_REQUIRED)), ErrorCode::NeedsPassword);
+        assert_eq!(code(&format!("{} Check that Caps Lock is off.", io::WRONG_PASSWORD)), ErrorCode::WrongPassword);
+        assert_eq!(code("'a.xlsx' uses RC4 encryption, which GridCraft can't open yet."), ErrorCode::Unsupported);
+        assert_eq!(
+            code("XLS: this .xls workbook is password-protected (encrypted). GridCraft can't open encrypted .xls files"),
+            ErrorCode::Unsupported
+        );
+        assert_eq!(code("XLS: Excel 5.0/95 workbooks (BIFF5) are not supported; save the file as .xlsx"), ErrorCode::Unsupported);
+        assert_eq!(code("the file is not a valid zip package"), ErrorCode::Invalid);
+    }
 }
 
 /// Whether Windows-1252 has the character (what the PDF export's standard fonts can show).

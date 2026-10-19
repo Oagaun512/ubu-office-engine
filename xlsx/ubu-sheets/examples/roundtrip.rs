@@ -159,7 +159,14 @@ fn main() {
                 (Some(x), Some(y)) if (x.0, x.1) == (y.0, y.1) => {
                     if x != y {
                         changed += 1;
-                        first.get_or_insert_with(|| format!("sheet {si} R{}C{}: {:?} → {:?}", x.0 + 1, x.1 + 1, x.3, y.3));
+                        // Name the part that differs: the formula (or typed value), or the value shown.
+                        first.get_or_insert_with(|| {
+                            if x.3 != y.3 {
+                                format!("sheet {si} R{}C{} input: {:?} → {:?}", x.0 + 1, x.1 + 1, x.3, y.3)
+                            } else {
+                                format!("sheet {si} R{}C{} value of {:?}: {:?} → {:?}", x.0 + 1, x.1 + 1, x.3, x.2, y.2)
+                            }
+                        });
                     }
                     i += 1;
                     j += 1;
