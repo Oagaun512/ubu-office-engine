@@ -132,6 +132,11 @@ fn saving_round_trips_and_csv_and_pdf_are_written() {
     let w = window(&again, 1, 1);
     assert_eq!(cell(&w, 1, 0).unwrap()[2], "Edited");
     assert_eq!(again.cell_input(0, 0, 1).unwrap(), "=2*21");
+    // The save check's measure: every cell's text and formula, the same in the copy.
+    let contents = book.contents(0).unwrap();
+    assert_eq!(contents, again.contents(0).unwrap());
+    assert!(contents.contains(&(0, 1, "42".to_string(), "=2*21".to_string())), "{contents:?}");
+    assert_eq!(contents.len(), 3, "only cells with content");
     let csv = String::from_utf8(book.save_csv(0).unwrap()).unwrap();
     assert!(csv.contains("Name") && csv.contains("42") && csv.contains("Edited"), "{csv}");
     assert_eq!(book.pdf_unwritable(0).unwrap(), None);

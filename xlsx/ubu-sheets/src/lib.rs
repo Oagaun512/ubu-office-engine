@@ -314,6 +314,23 @@ impl Book {
         Ok(json!({"styles": styles, "cells": out}).to_string())
     }
 
+    /// Every stored cell of a sheet with content, in reading order: `(row, col, text, input)`,
+    /// where `text` is the value with its number format (no column fitting) and `input` what the
+    /// formula bar shows (the formula, or the value as typed). What the S2 corpus run and the S7
+    /// save check compare between a workbook and its saved copy.
+    pub fn contents(&self, si: usize) -> Result<Vec<(u32, u32, String, String)>> {
+        let wb = self.wb();
+        let sh = self.sheet(si)?;
+        let mut out: Vec<(u32, u32, String, String)> = sh
+            .cells
+            .iter()
+            .filter(|(_, cell)| !cell.value.is_empty() || cell.formula.is_some())
+            .map(|(c, _)| (c.row, c.col, display::value_text(wb, sh, c), display::edit_text(wb, sh, c)))
+            .collect();
+        out.sort_unstable_by_key(|x| (x.0, x.1));
+        Ok(out)
+    }
+
     /// What the formula bar shows for a cell: its formula (`=…`) or the value as typed.
     pub fn cell_input(&self, si: usize, row: u32, col: u32) -> Result<String> {
         let wb = self.wb();

@@ -21,6 +21,11 @@ export class SheetBook {
      */
     chart(sheet: number, index: number, width: number, height: number): string;
     /**
+     * Every stored cell of a sheet with content, as JSON `[[row, col, text, input]…]` in
+     * reading order (the save check compares a workbook with its saved copy by it).
+     */
+    contents(sheet: number): string;
+    /**
      * The active sheet as PDF.
      */
     exportPdf(): Uint8Array;

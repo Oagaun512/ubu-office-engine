@@ -70,6 +70,8 @@ if (isMainThread) {
     check(xlsx[0] === 0x50 && xlsx[1] === 0x4b, "XLSX save (a zip)");
     const again = glue.SheetBook.open(xlsx, "copy.xlsx", null);
     check(cellAt(JSON.parse(again.window(0, 0, 0, 1, 2, 7)), 1, 2)?.[2] === "6", "the saved copy reopens with its values");
+    check(again.contents(0) === book.contents(0), "the copy's cells and formulas match (the save check's measure)");
+    check(JSON.parse(book.contents(0)).some((c) => c[3] === "=A2*B2" && c[2] === "6"), "contents lists formulas with their values");
     again.free();
     const csv = new TextDecoder().decode(book.saveCsv(0));
     check(csv.includes("Ubu Sheets") && csv.includes("6"), `CSV, got ${JSON.stringify(csv)}`);

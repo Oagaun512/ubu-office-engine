@@ -58,6 +58,13 @@ impl SheetBook {
         self.inner.window(sheet as usize, row0, col0, row1, col1, digit_px).map_err(js_error)
     }
 
+    /// Every stored cell of a sheet with content, as JSON `[[row, col, text, input]…]` in
+    /// reading order (the save check compares a workbook with its saved copy by it).
+    pub fn contents(&self, sheet: u32) -> Result<String, JsValue> {
+        let cells = self.inner.contents(sheet as usize).map_err(js_error)?;
+        serde_json::to_string(&cells).map_err(|e| js_error(SheetsError::new(crate::ErrorCode::Invalid, e.to_string())))
+    }
+
     /// What the formula bar shows for a cell.
     #[wasm_bindgen(js_name = cellInput)]
     pub fn cell_input(&self, sheet: u32, row: u32, col: u32) -> Result<String, JsValue> {
