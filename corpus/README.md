@@ -18,6 +18,16 @@ PDFs are **not committed** here. CI fetches them:
 `scripts/roundtrip-docx.mjs` writes the round-trip and fidelity report (ROUNDTRIP.md, vendored
 into Ubunex with the engine). Nothing here is committed or shipped.
 
+## Spreadsheets (Ubu Office Phase 4, S2)
+
+| Source | Pinned at | Licence | What |
+|---|---|---|---|
+| [apache/poi](https://github.com/apache/poi) `test-data/spreadsheet/*.{xlsx,xlsm,xltx,xls,xlsb,ods}` | `bf7c9b6a1490046517cbd8e1504e702a89be4bc9` | Apache-2.0 (repository; `legal/LICENSE`, `legal/NOTICE` fetched with them) | Apache POI's spreadsheet test data, many from real bug reports: Excel 2007+ packages, Excel 97-2003 files, binary and OpenDocument workbooks, password-protected files. |
+
+`scripts/fetch-xlsx-corpus.sh` downloads them into `corpus/cache/poi-spreadsheet/`, and
+`scripts/roundtrip-xlsx.mjs` writes the round-trip report (ROUNDTRIP.md, vendored into Ubunex
+with the engine). Nothing here is committed or shipped.
+
 ## Our own real-world files (decision D6, open)
 
 Messy real-world PDFs and Word documents from the founder or public sources go in a separate
