@@ -232,3 +232,51 @@ fn a_click_on_text_selects_or_edits_it_and_unknown_events_are_refused() {
     let edit = deck.render(0, 0.5, true).unwrap();
     assert_eq!((plain.width, plain.height), (edit.width, edit.height));
 }
+
+// ── Phase 5 P7: the slide show ─────────────────────────────────────────────────────────────
+
+#[test]
+fn the_show_builds_on_clicks_moves_through_slides_and_ends() {
+    // Slide 1: a text box that appears on a click (one build step); slide 2: blank.
+    let mut s = Session::with_new();
+    let made = s.execute("insert.textBox", &json!({"rect": [100, 100, 500, 80], "text": "Builds in"})).unwrap();
+    let id = made["id"].as_u64().unwrap();
+    s.execute("animation.add", &json!({"effect": "fade", "class": "entrance", "ids": [id]})).unwrap();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let bytes = file::save_bytes(&s.active().unwrap().doc, "pptx").unwrap();
+    let mut deck = Deck::open(&bytes, "t.pptx").unwrap();
+    let ink = |d: &Deck| {
+        let img = d.show_render(0.5).unwrap();
+        img.pixels.chunks(4).filter(|p| p[0] < 100).count()
+    };
+
+    let st = json(&deck.show_start(None).unwrap());
+    assert_eq!(
+        (st["running"].clone(), st["slide"].clone(), st["step"].clone(), st["steps"].clone()),
+        (json!(true), json!(0), json!(0), json!(1)),
+        "{st}"
+    );
+    let before = ink(&deck);
+    // A click builds the text in.
+    let st = json(&deck.show_next());
+    assert_eq!((st["slide"].clone(), st["step"].clone()), (json!(0), json!(1)), "{st}");
+    assert!(ink(&deck) > before + 20, "the built text is drawn");
+    // ← takes the build back.
+    let st = json(&deck.show_prev());
+    assert_eq!(st["step"], 0, "{st}");
+    deck.show_next();
+    // The next click goes to slide 2, then the end screen, then out of the show.
+    assert_eq!(json(&deck.show_next())["slide"], 1);
+    let end = json(&deck.show_next());
+    assert_eq!(end["ended"], true, "{end}");
+    assert!(deck.show_render(0.5).is_err(), "the end screen is the page's");
+    let out = json(&deck.show_next());
+    assert_eq!((out["running"].clone(), out["over"].clone()), (json!(false), json!(true)), "{out}");
+    // Starting from a slide, and going to one.
+    deck.show_start(Some(1)).unwrap();
+    assert_eq!(json(&deck.show_state())["slide"], 1);
+    assert_eq!(json(&deck.show_goto(0).unwrap())["slide"], 0);
+    assert_eq!(deck.show_goto(9).unwrap_err().code, ErrorCode::OutOfRange);
+    deck.show_end();
+    assert_eq!(json(&deck.show_state())["running"], false);
+}

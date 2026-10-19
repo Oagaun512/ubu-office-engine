@@ -1229,6 +1229,7 @@ dependencies = [
 name = "ubu-slides"
 version = "0.1.0"
 dependencies = [
+ "deckcraft-anim",
  "deckcraft-engine",
  "deckcraft-fonts",
  "deckcraft-model",

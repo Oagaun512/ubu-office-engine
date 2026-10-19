@@ -84,6 +84,36 @@ export class SlideDeck {
      */
     shapes(slide: number): string;
     /**
+     * Leave the slide show.
+     */
+    showEnd(): void;
+    /**
+     * Go to a slide in the show. Returns `showState()`.
+     */
+    showGoto(slide: number): string;
+    /**
+     * The next build step, slide or the end screen. Returns `showState()`.
+     */
+    showNext(): string;
+    /**
+     * Back one build step, or to the previous slide fully built. Returns `showState()`.
+     */
+    showPrev(): string;
+    /**
+     * The show's current slide as the audience sees it, at `scale` pixels per point.
+     */
+    showRender(scale: number): SlidePicture;
+    /**
+     * Start the slide show at `from` (or the first slide of the show order). Returns
+     * `showState()`.
+     */
+    showStart(from?: number | null): string;
+    /**
+     * Where the show is, as JSON: `{"running", "slide", "step", "steps", "ended", "over",
+     * "advanceAfter"}`.
+     */
+    showState(): string;
+    /**
      * The text on a slide, in drawing order.
      */
     slideText(slide: number): string;
