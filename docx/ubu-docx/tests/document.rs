@@ -170,3 +170,14 @@ fn text_layer_agrees_with_page_text() {
     let joined = doc.page_text_layer(0).unwrap().into_iter().map(|l| l.text).collect::<Vec<_>>().join("\n");
     assert_eq!(joined.trim(), doc.page_text(0).unwrap().trim());
 }
+
+#[test]
+fn a_break_at_the_end_of_a_line_is_not_copied() {
+    // The paragraph before a page break ends with the break character (U+000C).
+    let doc = Document::open(&docx(&[Some("Before"), None, Some("After")]), "t.docx", None).unwrap();
+    for page in 0..doc.page_count() {
+        for l in doc.page_text_layer(page).unwrap() {
+            assert!(!l.text.chars().any(|c| c.is_control() && c != '\t'), "no control characters: {:?}", l.text);
+        }
+    }
+}

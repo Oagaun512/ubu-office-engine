@@ -192,13 +192,14 @@ impl Document {
     /// The page's text as lines with boxes, in layout order (body, then header and footer):
     /// what a viewer lays over the rendered page so text can be selected and copied. Built from
     /// wordcraft's own line layout (`layout::hit::page_lines`), so each box is where the line's
-    /// characters really are. Inline objects (pictures, fields' codes) are left out of the text.
+    /// characters really are. Inline objects (pictures, fields' codes) and control characters
+    /// (a page or column break at a line's end, U+000C) are left out of the text; tabs stay.
     pub fn page_text_layer(&self, index: usize) -> Result<Vec<TextLine>, DocxError> {
         let lines = self.page_lines(index)?;
         Ok(lines
             .into_iter()
             .filter_map(|l| {
-                let text: String = l.text.chars().filter(|c| *c != OBJ).collect();
+                let text: String = l.text.chars().filter(|c| *c != OBJ && (*c == '\t' || !c.is_control())).collect();
                 if text.trim().is_empty() {
                     return None;
                 }
