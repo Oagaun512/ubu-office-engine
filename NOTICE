@@ -11,6 +11,11 @@ submodules under upstream/, each with its own LICENSE, NOTICE and ATTRIBUTION fi
   MIT OR Apache-2.0. Fork of https://github.com/storytold/pdfcraft.
 - upstream/craft-libs — Copyright (c) 2026 ArtCraft Team and contributors.
   MIT OR Apache-2.0. Fork of https://github.com/storytold/craft-libs.
+- upstream/wordcraft — Copyright (c) 2026 ArtCraft Team and the WordCraft contributors.
+  MIT OR Apache-2.0. Fork of https://github.com/storytold/wordcraft (the DOCX engine, docx/).
+- upstream/gridcraft — Copyright (c) 2026 ArtCraft Team and the GridCraft contributors.
+  MIT OR Apache-2.0. Fork of https://github.com/storytold/gridcraft (the spreadsheet engine,
+  xlsx/).
 
 The upstream product names, wordmarks and logos are trademarks of their owners. They are not
 covered by the licences above, are not used in Ubu Office's interface or marketing, and the
@@ -29,6 +34,12 @@ Required notices for material compiled into the PDF engine build (crates/ubu-pdf
     of Adobe nor the names of its contributors are used to endorse or promote this product.
 
   Colour profile in hayro-interpret — CGATS001Compat-v2-micro.icc (CC0-1.0, Clinton Ingram).
+
+Required notice for material compiled into the spreadsheet engine build (xlsx/ubu-sheets):
+
+  Standard-14 font widths (upstream/gridcraft/crates/pdf/src/metrics.rs): numeric advance widths
+  from Adobe's Core 14 AFM font metrics files, reproduced under Adobe's terms
+  (licenses/adobe-core14-afm.txt). No AFM file is included.
 
 The full per-crate licence list of every build is generated into SBOM.md by CI.
 

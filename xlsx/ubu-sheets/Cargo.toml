@@ -1,0 +1,24 @@
+[package]
+name = "ubu-sheets"
+description = "Headless spreadsheet engine for Ubu Office: open, read cell windows, edit, recalculate, save, export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+# cdylib: the browser build (wasm-bindgen); rlib: native tests.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gridcraft-engine = { workspace = true }
+gridcraft-chart = { workspace = true }
+gridcraft-xlsx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { workspace = true }
+js-sys = { workspace = true }

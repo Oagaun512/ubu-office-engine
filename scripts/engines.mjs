@@ -46,6 +46,22 @@ export const ENGINES = {
       "The wordcraft-* crates are covered by wordcraft/, and craft-pdf and krilla by craft-libs/, next to this file. " +
       "The fonts compiled into the engine are under the SIL Open Font License, in assets/.",
   },
+  "ubu-sheets": {
+    manifest: "xlsx/Cargo.toml",
+    forks: [
+      {
+        name: "gridcraft",
+        dir: "upstream/gridcraft",
+        files: ["LICENSE-MIT", "LICENSE-APACHE", "NOTICE", "ATTRIBUTION.md"],
+        covers: inside("upstream/gridcraft"),
+      },
+    ],
+    // The PDF export's standard-14 widths come from Adobe's AFM metrics (crates/pdf/src/metrics.rs).
+    assets: [["licenses/adobe-core14-afm.txt", "adobe-core14-afm.txt"]],
+    note:
+      "The gridcraft-* crates are covered by gridcraft/ next to this file. " +
+      "The PDF export's standard-14 font widths are reproduced under Adobe's terms, in assets/.",
+  },
 };
 
 export function engine(crate) {

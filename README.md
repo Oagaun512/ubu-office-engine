@@ -5,10 +5,13 @@ Headless WebAssembly document engines for **Ubu Office**, the document suite of
 
 | Engine | Crate | Status |
 |---|---|---|
-| PDF | `crates/ubu-pdf` | M1 — open, render, extract text, save |
-| Docs (DOCX) | `crates/ubu-docs` | planned |
-| Sheets (XLSX) | `crates/ubu-sheets` | planned |
-| Slides (PPTX) | `crates/ubu-slides` | planned |
+| PDF | `crates/ubu-pdf` (root workspace) | open, render, text, find, protect, save |
+| Docs (DOCX) | `docx/ubu-docx` (own workspace) | open, render, text, find, edit, format, save, PDF |
+| Sheets (XLSX) | `xlsx/ubu-sheets` (own workspace) | S1 — open, layout, cell windows, commands, save XLSX/CSV, PDF |
+| Slides (PPTX) | — | planned |
+
+Each engine with a different upstream has its own Cargo workspace (and `Cargo.lock`), so one
+upstream's patches never reach another's dependencies.
 
 ## How it works
 
@@ -28,7 +31,9 @@ Nothing here is built inside Ubunex.
 ```sh
 git clone --recurse-submodules https://github.com/Oagaun512/ubu-office-engine
 scripts/setup-remotes.sh        # adds `upstream` remotes in each fork
-cargo test -p ubu-pdf           # native tests
+cargo test -p ubu-pdf           # native tests (PDF)
+cargo test --manifest-path docx/Cargo.toml -p ubu-docx
+cargo test --manifest-path xlsx/Cargo.toml -p ubu-sheets
 ```
 
 ## Licence
