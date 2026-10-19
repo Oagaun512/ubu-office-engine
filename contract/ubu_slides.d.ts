@@ -30,14 +30,41 @@ export class SlideDeck {
      */
     notes(slide: number): string;
     /**
+     * The input method's composition, accepted.
+     */
+    commitText(text: string): string;
+    /**
+     * An input method's composition so far; `active_start`/`active_end` (characters in `text`)
+     * mark the part being converted, when there is one.
+     */
+    composeText(text: string, active_start?: number | null, active_end?: number | null): string;
+    /**
+     * A key press (`Enter`, `ArrowLeft`, `Delete`, …, or a character with Ctrl). `result.handled`
+     * says whether the engine used it. Returns the same JSON as `run`.
+     */
+    key(key: string, mods: number): string;
+    /**
      * Open a presentation (`.pptx`, `.ppsx`, `.potx`); `name` is for messages. Throws a
      * `SlidesError` (`code`: invalid, unsupported).
      */
     static open(bytes: Uint8Array, name: string): SlideDeck;
     /**
-     * Render a slide at `scale` pixels per point.
+     * What an editor draws over the current slide, as JSON in points: selected shapes (corners,
+     * handles, rotate handle), the text being edited (caret, caret colour, selected text),
+     * the rubber band and what the pointer is over.
      */
-    render(slide: number, scale: number): SlidePicture;
+    overlay(): string;
+    /**
+     * A pointer event on the current slide, in points: `kind` is `down`, `drag`, `up`, `move`,
+     * `double`, `triple` or `context`; `mods` 1 Shift, 2 Alt, 4 Ctrl/Cmd; `tol` the hit
+     * tolerance in points. Returns the same JSON as `run`.
+     */
+    pointer(kind: string, x: number, y: number, mods: number, tol: number): string;
+    /**
+     * Render a slide at `scale` pixels per point; `edit` draws it as an editor does
+     * (placeholder prompts and outlines).
+     */
+    render(slide: number, scale: number, edit: boolean): SlidePicture;
     /**
      * Run an engine command with its JSON parameters. Returns JSON: `{"result": <the command's
      * result>, "changed": bool, "rev": n, "slide": n, "slides": n}`. Throws a `SlidesError`
@@ -69,6 +96,10 @@ export class SlideDeck {
      * "size"}]` ((x, y) → (x2, y2) is the baseline).
      */
     textLayer(slide: number): string;
+    /**
+     * Type text at the caret (or start editing the selected shape with it).
+     */
+    typeText(text: string): string;
     /**
      * What opening noticed (slides left out, media that won't play here).
      */

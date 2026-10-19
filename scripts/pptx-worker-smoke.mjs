@@ -45,7 +45,7 @@ if (isMainThread) {
     check(info.slides === 2 && info.width > info.height, `2 wide slides, got ${JSON.stringify(info)}`);
     const slides = JSON.parse(deck.slides());
     check(slides[0].notes === true && deck.notes(0) === "Speaker notes", `notes, got ${JSON.stringify(slides)}`);
-    const pic = deck.render(0, 1);
+    const pic = deck.render(0, 1, false);
     const pixels = pic.pixels;
     const t3 = performance.now();
     check(pic.width === Math.round(info.width) && pixels.length === pic.width * pic.height * 4, `a slide at 1 px/pt, got ${pic.width}×${pic.height}`);

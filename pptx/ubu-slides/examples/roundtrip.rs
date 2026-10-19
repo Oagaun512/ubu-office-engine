@@ -117,7 +117,7 @@ fn main() {
     let mut render_ms = 0u128;
     for i in 0..n {
         let t = Instant::now();
-        let img = match deck.render(i, 0.5) {
+        let img = match deck.render(i, 0.5, false) {
             Ok(img) => img,
             Err(e) => return report("render", n, open_ms, &warnings, Some(format!("slide {}: {e}", i + 1))),
         };

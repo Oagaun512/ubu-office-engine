@@ -1234,6 +1234,7 @@ dependencies = [
  "deckcraft-model",
  "deckcraft-pptx",
  "deckcraft-render",
+ "deckcraft-text",
  "js-sys",
  "kurbo",
  "serde_json",

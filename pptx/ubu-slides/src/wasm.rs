@@ -101,9 +101,10 @@ impl SlideDeck {
         Deck::add_font(bytes) as u32
     }
 
-    /// Render a slide at `scale` pixels per point.
-    pub fn render(&self, slide: u32, scale: f64) -> Result<SlidePicture, JsValue> {
-        let img = self.inner.render(slide as usize, scale).map_err(js_error)?;
+    /// Render a slide at `scale` pixels per point; `edit` draws it as an editor does
+    /// (placeholder prompts and outlines).
+    pub fn render(&self, slide: u32, scale: f64, edit: bool) -> Result<SlidePicture, JsValue> {
+        let img = self.inner.render(slide as usize, scale, edit).map_err(js_error)?;
         Ok(SlidePicture { width: img.width, height: img.height, pixels: img.pixels })
     }
 
@@ -134,8 +135,47 @@ impl SlideDeck {
     /// result>, "changed": bool, "rev": n, "slide": n, "slides": n}`. Throws a `SlidesError`
     /// (`code`: invalid_command).
     pub fn run(&mut self, command: &str, params_json: &str) -> Result<String, JsValue> {
-        let r = self.inner.run(command, params_json).map_err(js_error)?;
-        Ok(format!("{{\"result\":{},\"changed\":{},\"rev\":{},\"slide\":{},\"slides\":{}}}", r.result, r.changed, r.rev, r.slide, r.slides))
+        self.inner.run(command, params_json).map(edit_json).map_err(js_error)
+    }
+
+    /// A pointer event on the current slide, in points: `kind` is `down`, `drag`, `up`, `move`,
+    /// `double`, `triple` or `context`; `mods` 1 Shift, 2 Alt, 4 Ctrl/Cmd; `tol` the hit
+    /// tolerance in points. Returns the same JSON as `run`.
+    pub fn pointer(&mut self, kind: &str, x: f64, y: f64, mods: u32, tol: f64) -> Result<String, JsValue> {
+        self.inner.pointer(kind, x, y, mods, tol).map(edit_json).map_err(js_error)
+    }
+
+    /// A key press (`Enter`, `ArrowLeft`, `Delete`, …, or a character with Ctrl). `result.handled`
+    /// says whether the engine used it. Returns the same JSON as `run`.
+    pub fn key(&mut self, key: &str, mods: u32) -> Result<String, JsValue> {
+        self.inner.key(key, mods).map(edit_json).map_err(js_error)
+    }
+
+    /// Type text at the caret (or start editing the selected shape with it).
+    #[wasm_bindgen(js_name = typeText)]
+    pub fn type_text(&mut self, text: &str) -> Result<String, JsValue> {
+        self.inner.type_text(text).map(edit_json).map_err(js_error)
+    }
+
+    /// An input method's composition so far; `active_start`/`active_end` (characters in `text`)
+    /// mark the part being converted, when there is one.
+    #[wasm_bindgen(js_name = composeText)]
+    pub fn compose_text(&mut self, text: &str, active_start: Option<u32>, active_end: Option<u32>) -> Result<String, JsValue> {
+        let active = active_start.zip(active_end).map(|(a, b)| (a as usize, b as usize));
+        self.inner.compose_text(text, active).map(edit_json).map_err(js_error)
+    }
+
+    /// The input method's composition, accepted.
+    #[wasm_bindgen(js_name = commitText)]
+    pub fn commit_text(&mut self, text: &str) -> Result<String, JsValue> {
+        self.inner.commit_text(text).map(edit_json).map_err(js_error)
+    }
+
+    /// What an editor draws over the current slide, as JSON in points: selected shapes (corners,
+    /// handles, rotate handle), the text being edited (caret, caret colour, selected text),
+    /// the rubber band and what the pointer is over.
+    pub fn overlay(&self) -> String {
+        self.inner.overlay()
     }
 
     /// The selection, as JSON (the engine's own shape).
@@ -169,6 +209,11 @@ impl SlideDeck {
     pub fn export_pdf(&self) -> Result<Vec<u8>, JsValue> {
         self.inner.export_pdf().map_err(js_error)
     }
+}
+
+/// What an edit did, as JSON: `{"result", "changed", "rev", "slide", "slides"}`.
+fn edit_json(r: crate::EditResult) -> String {
+    format!("{{\"result\":{},\"changed\":{},\"rev\":{},\"slide\":{},\"slides\":{}}}", r.result, r.changed, r.rev, r.slide, r.slides)
 }
 
 /// The engine build: this repository's commit and the deckcraft fork's commit.

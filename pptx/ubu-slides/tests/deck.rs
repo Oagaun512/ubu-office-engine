@@ -56,13 +56,13 @@ fn a_slide_renders_with_ink_at_the_scale_asked() {
     let bytes = pptx(&[text_box("Ink")], None);
     let deck = Deck::open(&bytes, "t.pptx").unwrap();
     let info = json(&deck.info());
-    let img = deck.render(0, 0.5).unwrap();
+    let img = deck.render(0, 0.5, false).unwrap();
     assert_eq!(img.width, (info["width"].as_f64().unwrap() * 0.5).round() as u32);
     assert_eq!(img.pixels.len(), (img.width * img.height * 4) as usize);
     let first = &img.pixels[..4];
     assert!(img.pixels.chunks(4).any(|p| p != first), "something is drawn on the slide");
-    assert_eq!(deck.render(5, 1.0).unwrap_err().code, ErrorCode::OutOfRange);
-    assert_eq!(deck.render(0, 0.0).unwrap_err().code, ErrorCode::OutOfRange);
+    assert_eq!(deck.render(5, 1.0, false).unwrap_err().code, ErrorCode::OutOfRange);
+    assert_eq!(deck.render(0, 0.0, false).unwrap_err().code, ErrorCode::OutOfRange);
 }
 
 #[test]
@@ -146,4 +146,82 @@ fn fonts_used_are_listed_for_the_page_to_load() {
     let info = json(&deck.info());
     assert!(!info["fonts"].as_array().unwrap().is_empty(), "{info}");
     assert!(info["missingFonts"].is_array());
+}
+
+// ── Phase 5 P5: editing through the engine's own pointer and key handling ──────────────────
+
+/// The id of the text box `text_box` made (the slide's shape whose box starts at 100, 100).
+fn box_id(deck: &Deck) -> u64 {
+    let shapes = json(&deck.shapes(0).unwrap());
+    shapes.as_array().unwrap().iter().find(|s| s["box"][0] == 100.0 && s["box"][1] == 100.0).unwrap()["id"].as_u64().unwrap()
+}
+
+#[test]
+fn a_selected_shape_has_its_box_and_handles_and_a_handle_drag_resizes_it_as_one_undo_step() {
+    let mut deck = Deck::open(&pptx(&[text_box("Resize me")], None), "t.pptx").unwrap();
+    let id = box_id(&deck);
+    deck.run("edit.select", &format!(r#"{{"ids": [{id}]}}"#)).unwrap();
+    let o = json(&deck.overlay());
+    let sel = &o["shapes"][0];
+    assert_eq!(sel["id"], id);
+    assert_eq!(sel["corners"][0], json!([100.0, 100.0]));
+    assert_eq!(sel["handles"].as_array().unwrap().len(), 8);
+    assert_eq!(sel["handles"][4], json!([600.0, 180.0]), "the SE handle");
+    assert!(o["editing"].is_null() && o["caret"].is_null());
+    // Drag the SE handle 50 points right and 20 down.
+    deck.pointer("down", 600.0, 180.0, 0, 3.0).unwrap();
+    deck.pointer("drag", 625.0, 190.0, 0, 3.0).unwrap();
+    deck.pointer("drag", 650.0, 200.0, 0, 3.0).unwrap();
+    let up = deck.pointer("up", 650.0, 200.0, 0, 3.0).unwrap();
+    assert!(up.changed || deck.can_undo(), "{up:?}");
+    let after = json(&deck.overlay());
+    assert_eq!(after["shapes"][0]["handles"][4], json!([650.0, 200.0]), "the box follows the handle: {after}");
+    // Ctrl+Z undoes the whole gesture.
+    let undo = deck.key("z", 4).unwrap();
+    assert!(json(&undo.result)["handled"].as_bool().unwrap(), "{undo:?}");
+    assert_eq!(json(&deck.overlay())["shapes"][0]["handles"][4], json!([600.0, 180.0]));
+}
+
+#[test]
+fn typing_edits_the_text_with_a_caret_and_escape_leaves_it() {
+    let mut deck = Deck::open(&pptx(&[text_box("Hello")], None), "t.pptx").unwrap();
+    let id = box_id(&deck);
+    deck.run("text.edit", &format!(r#"{{"id": {id}, "end": true}}"#)).unwrap();
+    let o = json(&deck.overlay());
+    assert_eq!(o["editing"], id);
+    let caret = o["caret"].as_array().unwrap_or_else(|| panic!("a caret: {o}"));
+    assert!(caret[1][1].as_f64().unwrap() > caret[0][1].as_f64().unwrap(), "a caret line runs down: {o}");
+    assert!(o["caretColor"].as_str().unwrap().starts_with('#'));
+    let typed = deck.type_text(" world").unwrap();
+    assert!(typed.changed);
+    assert!(deck.slide_text(0).unwrap().contains("Hello world"));
+    // Shift+Home selects to the line start: the selection shows as quads, the caret goes.
+    deck.key("Home", 1).unwrap();
+    let o = json(&deck.overlay());
+    assert!(o["caret"].is_null() && !o["textSelection"].as_array().unwrap().is_empty(), "{o}");
+    deck.key("Backspace", 0).unwrap();
+    assert!(!deck.slide_text(0).unwrap().contains("Hello"), "the selection is deleted");
+    deck.key("Escape", 0).unwrap();
+    let o = json(&deck.overlay());
+    assert!(o["editing"].is_null(), "{o}");
+    assert_eq!(o["shapes"][0]["id"], id, "the box stays selected after editing");
+    // Delete removes the selected shape.
+    deck.key("Delete", 0).unwrap();
+    assert!(json(&deck.overlay())["shapes"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn a_click_on_text_selects_or_edits_it_and_unknown_events_are_refused() {
+    let mut deck = Deck::open(&pptx(&[text_box("Click me")], None), "t.pptx").unwrap();
+    let id = box_id(&deck);
+    deck.pointer("down", 150.0, 140.0, 0, 3.0).unwrap();
+    deck.pointer("up", 150.0, 140.0, 0, 3.0).unwrap();
+    let o = json(&deck.overlay());
+    assert!(o["editing"] == id || o["shapes"][0]["id"] == id, "the click lands on the box: {o}");
+    assert_eq!(deck.pointer("hover", 0.0, 0.0, 0, 3.0).unwrap_err().code, ErrorCode::InvalidCommand);
+    assert_eq!(deck.pointer("down", f64::NAN, 0.0, 0, 3.0).unwrap_err().code, ErrorCode::InvalidCommand);
+    // An edit view draws the slide (the same size as the plain view).
+    let plain = deck.render(0, 0.5, false).unwrap();
+    let edit = deck.render(0, 0.5, true).unwrap();
+    assert_eq!((plain.width, plain.height), (edit.width, edit.height));
 }
