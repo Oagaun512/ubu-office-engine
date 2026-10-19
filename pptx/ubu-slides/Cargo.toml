@@ -1,0 +1,26 @@
+[package]
+name = "ubu-slides"
+description = "Headless presentation engine for Ubu Office: open PPTX, render slides, text layer, edit, save PPTX, export PDF"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+# cdylib: the browser build (wasm-bindgen); rlib: native tests.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+deckcraft-engine = { workspace = true }
+deckcraft-model = { workspace = true }
+deckcraft-render = { workspace = true }
+deckcraft-pptx = { workspace = true }
+deckcraft-fonts = { workspace = true }
+kurbo = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { workspace = true }
+js-sys = { workspace = true }

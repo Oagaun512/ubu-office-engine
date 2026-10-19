@@ -62,6 +62,29 @@ export const ENGINES = {
       "The gridcraft-* crates are covered by gridcraft/ next to this file. " +
       "The PDF export's standard-14 font widths are reproduced under Adobe's terms, in assets/.",
   },
+  "ubu-slides": {
+    manifest: "pptx/Cargo.toml",
+    forks: [
+      {
+        name: "deckcraft",
+        dir: "upstream/deckcraft",
+        files: ["LICENSE-MIT", "LICENSE-APACHE", "NOTICE", "ATTRIBUTION.md"],
+        covers: inside("upstream/deckcraft"),
+      },
+      {
+        name: "craft-libs",
+        dir: "upstream/craft-libs",
+        files: ["LICENSE-MIT", "LICENSE-APACHE", "NOTICE"],
+        covers: inside("upstream/craft-libs"),
+      },
+    ],
+    // The last-resort face's licences (Ubuntu Light, through epaint_default_fonts) ship with that
+    // crate's texts in licenses/epaint_default_fonts/.
+    assets: [],
+    note:
+      "The deckcraft-* crates are covered by deckcraft/, and craft-pdf and krilla by craft-libs/, next to this file. " +
+      "The last-resort font compiled into the engine (Ubuntu Light) is under the Ubuntu Font Licence, listed with epaint_default_fonts.",
+  },
 };
 
 export function engine(crate) {

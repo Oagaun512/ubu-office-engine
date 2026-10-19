@@ -4,8 +4,9 @@ Licensed under the MIT License or the Apache License, Version 2.0, at your optio
 (LICENSE-MIT, LICENSE-APACHE).
 
 This repository builds headless WebAssembly document engines for Ubu Office (Ubunex).
-The format engines themselves are third-party open-source code, kept unmodified as git
-submodules under upstream/, each with its own LICENSE, NOTICE and ATTRIBUTION files:
+The format engines themselves are third-party open-source code, kept as git submodules under
+upstream/ (unmodified, except for the one deckcraft patch noted below), each with its own
+LICENSE, NOTICE and ATTRIBUTION files:
 
 - upstream/pdfcraft — Copyright (c) 2026 ArtCraft Team and the PdfCraft contributors.
   MIT OR Apache-2.0. Fork of https://github.com/storytold/pdfcraft.
@@ -16,6 +17,10 @@ submodules under upstream/, each with its own LICENSE, NOTICE and ATTRIBUTION fi
 - upstream/gridcraft — Copyright (c) 2026 ArtCraft Team and the GridCraft contributors.
   MIT OR Apache-2.0. Fork of https://github.com/storytold/gridcraft (the spreadsheet engine,
   xlsx/).
+- upstream/deckcraft — Copyright (c) 2026 ArtCraft Team and the DeckCraft contributors.
+  MIT OR Apache-2.0. Fork of https://github.com/storytold/deckcraft (the presentation engine,
+  pptx/). Not unmodified: it carries one patch of ours, a default-on `media` feature on
+  crates/engine (branch ubu/media-optional), which the presentation engine turns off.
 
 The upstream product names, wordmarks and logos are trademarks of their owners. They are not
 covered by the licences above, are not used in Ubu Office's interface or marketing, and the
@@ -40,6 +45,13 @@ Required notice for material compiled into the spreadsheet engine build (xlsx/ub
   Standard-14 font widths (upstream/gridcraft/crates/pdf/src/metrics.rs): numeric advance widths
   from Adobe's Core 14 AFM font metrics files, reproduced under Adobe's terms
   (licenses/adobe-core14-afm.txt). No AFM file is included.
+
+Required notices for material compiled into the presentation engine build (pptx/ubu-slides):
+
+  Ubuntu Light (the last-resort text face, via the epaint_default_fonts crate): Copyright 2010-2011
+  Canonical Ltd., by Dalton Maag Ltd. Ubuntu Font Licence 1.0
+  (licenses/epaint_default_fonts/LICENSE-UFL-1.0.txt). The crate's other fonts are under the SIL
+  Open Font Licence 1.1 (licenses/epaint_default_fonts/LICENSE-OFL-1.1.txt).
 
 The full per-crate licence list of every build is generated into SBOM.md by CI.
 

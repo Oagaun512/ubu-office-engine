@@ -141,6 +141,7 @@ jobs:
       - name: Worker smoke test (the engine in a worker, as Ubunex runs it)
         run: |
           cargo run --locked --manifest-path xlsx/Cargo.toml -p ubu-sheets --example make_sample -- sample.xlsx
+          set -o pipefail # tee must not hide a failed smoke test
           node scripts/xlsx-worker-smoke.mjs pkg sample.xlsx | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
