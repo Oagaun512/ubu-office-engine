@@ -112,18 +112,8 @@ fn bad_commands_and_files_are_errors_not_panics() {
     assert_eq!(book.window(0, 0, 0, 1_000, 1_000, 7.0).unwrap_err().code, ErrorCode::OutOfRange, "a window is capped");
     assert_eq!(book.layout(9).unwrap_err().code, ErrorCode::OutOfRange);
     assert_eq!(Book::open(b"not a workbook at all", "x.xlsx", None).err().unwrap().code, ErrorCode::Invalid, "text named .xlsx");
-    assert_eq!(Book::open(b"PK broken zip", "x.xlsx", None).err().unwrap().code, ErrorCode::Invalid, "a broken package");
-    assert!(
-        Book::open(
-            b"a,b
-1,2
-",
-            "x.csv",
-            None
-        )
-        .is_ok(),
-        "a CSV still opens as text"
-    );
+    assert_eq!(Book::open(b"PK\x03\x04 broken zip", "x.xlsx", None).err().unwrap().code, ErrorCode::Invalid, "a broken package");
+    assert!(Book::open(b"a,b\n1,2\n", "x.csv", None).is_ok(), "a CSV still opens as text");
     assert_eq!(ErrorCode::NeedsPassword.code(), "needs_password");
     assert_eq!(ErrorCode::Unsupported.code(), "unsupported");
 }
