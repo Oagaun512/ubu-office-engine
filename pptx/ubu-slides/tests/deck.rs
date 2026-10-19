@@ -179,7 +179,9 @@ fn a_selected_shape_has_its_box_and_handles_and_a_handle_drag_resizes_it_as_one_
     let up = deck.pointer("up", sx + 50.0, sy + 20.0, 0, 3.0).unwrap();
     assert!(up.changed || deck.can_undo(), "{up:?}");
     let after = json(&deck.overlay());
-    assert_eq!(after["shapes"][0]["handles"][4][0], json!(650.0), "the box follows the handle: {after}");
+    // The engine snaps the gesture (grid and smart guides), so the edge lands near the pointer.
+    let x = after["shapes"][0]["handles"][4][0].as_f64().unwrap();
+    assert!((640.0..=660.0).contains(&x), "the box follows the handle: {after}");
     // Ctrl+Z undoes the whole gesture.
     let undo = deck.key("z", 4).unwrap();
     assert!(json(&undo.result)["handled"].as_bool().unwrap(), "{undo:?}");
