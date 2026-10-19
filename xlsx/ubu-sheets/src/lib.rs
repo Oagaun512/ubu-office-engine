@@ -230,7 +230,7 @@ impl Book {
     /// text, style, flags, color?, fillChar?, fillAt?]…]}`. Only cells with content or a style
     /// of their own are listed. `digit_px` is the width of a digit in the sheet's default font
     /// (CSS px at 100%): General numbers are shortened to fit their column as Excel does, and
-    /// `#` fills a column too narrow for any form of the number. 0 turns that off.
+    /// `#` fills a column too narrow for any form of the number. 0 turns the column fitting off (General still shows at most 11 characters, as Excel does).
     ///
     /// Flags: 1 numeric (right-aligned by default), 2 formula, 4 checkbox, 8 checked, 16 error.
     pub fn window(&self, si: usize, r0: u32, c0: u32, r1: u32, c1: u32, digit_px: f32) -> Result<String> {

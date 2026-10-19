@@ -58,7 +58,11 @@ fn general_numbers_fit_their_column_and_hashes_fill_a_column_too_narrow() {
     let b1 = cell(&w, 0, 1).unwrap()[2].as_str().unwrap().to_string();
     assert!(b1.chars().all(|c| c == '#'), "too narrow for the number: {b1}");
     let full: Value = serde_json::from_str(&book.window(0, 0, 0, 0, 0, 0.0).unwrap()).unwrap();
-    assert_eq!(cell(&full, 0, 0).unwrap()[2], "123456789.123456", "digit width 0 turns fitting off");
+    assert_eq!(
+        cell(&full, 0, 0).unwrap()[2],
+        "123456789.1",
+        "digit width 0 turns column fitting off; General still shows 11 characters, as in Excel"
+    );
 }
 
 #[test]
