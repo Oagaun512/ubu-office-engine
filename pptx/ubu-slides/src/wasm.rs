@@ -17,6 +17,26 @@ fn js_error(e: SlidesError) -> JsValue {
     err.into()
 }
 
+/// Print a panic's message and place to the console before the instance aborts (the browser
+/// build is `panic = "abort"`, so the trap itself says only "unreachable"). Installed once, before
+/// the engine's own hook, which chains to it.
+fn install_panic_hook() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::panic::set_hook(Box::new(|info| {
+            let at = info.location().map(|l| format!(" at {}:{}", l.file(), l.line())).unwrap_or_default();
+            let msg = info.payload().downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| info.payload().downcast_ref::<String>().cloned());
+            let line = format!("ubu-slides panicked{at}: {}", msg.as_deref().unwrap_or("(no message)"));
+            let console = js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("console")).ok();
+            if let Some(error) = console.as_ref().and_then(|c| js_sys::Reflect::get(c, &JsValue::from_str("error")).ok())
+                && let Ok(f) = error.dyn_into::<js_sys::Function>()
+            {
+                let _ = f.call1(console.as_ref().unwrap_or(&JsValue::UNDEFINED), &JsValue::from_str(&line));
+            }
+        }));
+    });
+}
+
 /// A rendered slide: straight RGBA pixels, row by row (for `ImageData`). Call `free()` when done.
 #[wasm_bindgen]
 pub struct SlidePicture {
@@ -55,6 +75,7 @@ impl SlideDeck {
     /// Open a presentation (`.pptx`, `.ppsx`, `.potx`); `name` is for messages. Throws a
     /// `SlidesError` (`code`: invalid, unsupported).
     pub fn open(bytes: &[u8], name: &str) -> Result<SlideDeck, JsValue> {
+        install_panic_hook();
         Deck::open(bytes, name).map(|inner| SlideDeck { inner }).map_err(js_error)
     }
 

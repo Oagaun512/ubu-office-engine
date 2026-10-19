@@ -143,6 +143,7 @@ jobs:
       - name: Worker smoke test (the engine in a worker, as Ubunex runs it)
         run: |
           cargo run --locked --manifest-path docx/Cargo.toml -p ubu-docx --example make_sample -- sample.docx
+          set -o pipefail # tee must not hide a failed smoke test
           node scripts/docx-worker-smoke.mjs pkg sample.docx | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()

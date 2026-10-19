@@ -40,13 +40,15 @@ jobs:
           for d in upstream/*; do
             test -z "$(git -C "$d" status --porcelain)" || { echo "::error::$d has local changes"; exit 1; }
           done
-          # D23: the deckcraft fork is upstream's 010941e plus one commit that touches only
-          # crates/engine (the `media` feature). Anything else is an unreviewed change.
-          git -C upstream/deckcraft fetch -q --depth=2 origin "$(git -C upstream/deckcraft rev-parse HEAD)"
-          base=$(git -C upstream/deckcraft rev-parse HEAD~1)
-          case "$base" in 010941e*) ;; *) echo "::error::upstream/deckcraft is not one commit on top of upstream 010941e (parent $base)"; exit 1;; esac
-          outside=$(git -C upstream/deckcraft diff --name-only HEAD~1 HEAD | grep -v '^crates/engine/' || true)
-          test -z "$outside" || { echo "::error::the deckcraft patch touches files outside crates/engine: $outside"; exit 1; }
+          # D23: the deckcraft fork is upstream's 010941e plus our commits on branch
+          # ubu/media-optional (the `media` feature; no process id on wasm32), all inside
+          # crates/engine. Anything else is an unreviewed change.
+          base=010941ec60f81f1eece31ec1ea83825c9a396217
+          git -C upstream/deckcraft fetch -q --depth=10 origin "$(git -C upstream/deckcraft rev-parse HEAD)"
+          git -C upstream/deckcraft merge-base --is-ancestor "$base" HEAD || { echo "::error::upstream/deckcraft does not sit on upstream 010941e"; exit 1; }
+          echo "our deckcraft commits:"; git -C upstream/deckcraft log --oneline "$base..HEAD"
+          outside=$(git -C upstream/deckcraft diff --name-only "$base" HEAD | grep -v '^crates/engine/' || true)
+          test -z "$outside" || { echo "::error::the deckcraft patches touch files outside crates/engine: $outside"; exit 1; }
       - name: No decoder in the browser build (D23)
         working-directory: pptx
         run: |
@@ -156,6 +158,7 @@ jobs:
       - name: Worker smoke test (the engine in a worker, as Ubunex runs it)
         run: |
           cargo run --locked --manifest-path pptx/Cargo.toml -p ubu-slides --example make_sample -- sample.pptx
+          set -o pipefail # tee must not hide a failed smoke test
           node scripts/pptx-worker-smoke.mjs pkg sample.pptx | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
