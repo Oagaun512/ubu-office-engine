@@ -132,6 +132,14 @@ impl DocxDocument {
         self.inner.clipboard_text().to_owned()
     }
 
+    /// The formatting at the selection, as JSON: font, size, bold, italic, underline, strike,
+    /// color, highlight, style and styleName (mixed values are null), plus the paragraph's
+    /// `align` and `list` (null or `{"num", "level", "format"}`).
+    #[wasm_bindgen(js_name = formatState)]
+    pub fn format_state(&mut self) -> Result<String, JsValue> {
+        self.inner.format_state().map_err(js_error)
+    }
+
     #[wasm_bindgen(getter, js_name = isDirty)]
     pub fn is_dirty(&self) -> bool {
         self.inner.is_dirty()

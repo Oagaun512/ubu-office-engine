@@ -255,3 +255,32 @@ fn bad_commands_are_errors_not_panics() {
     assert_eq!(ErrorCode::Unsupported.code(), "unsupported");
     assert_eq!(ErrorCode::InvalidCommand.code(), "invalid_command");
 }
+
+#[test]
+fn the_toolbar_state_follows_formatting_alignment_and_lists() {
+    let mut doc = Document::open(&docx(&[Some("Format me")]), "t.docx", None).unwrap();
+    doc.run("select.all", "{}").unwrap();
+    let state = |doc: &mut Document| serde_json::from_str::<serde_json::Value>(&doc.format_state().unwrap()).unwrap();
+    let before = state(&mut doc);
+    assert_eq!(before["bold"], false);
+    assert_eq!(before["align"], "left");
+    assert!(before["list"].is_null());
+    assert!(before["size"].as_f64().unwrap() > 0.0);
+    doc.run("format.bold", "{}").unwrap();
+    doc.run("format.size", r#"{"size":20}"#).unwrap();
+    doc.run("para.align", r#"{"value":"center"}"#).unwrap();
+    doc.run("para.bullets", "{}").unwrap();
+    let after = state(&mut doc);
+    assert_eq!(after["bold"], true);
+    assert_eq!(after["size"], 20.0);
+    assert_eq!(after["align"], "center");
+    assert_eq!(after["list"]["format"], "bullet");
+    doc.run("para.numbering", "{}").unwrap();
+    assert_eq!(state(&mut doc)["list"]["format"], "decimal");
+    doc.run("para.numbering", r#"{"off":true}"#).unwrap();
+    assert!(state(&mut doc)["list"].is_null());
+    // Reading the state is not an edit.
+    let rev = doc.run("caret.docStart", "{}").unwrap().rev;
+    state(&mut doc);
+    assert_eq!(doc.run("caret.docStart", "{}").unwrap().rev, rev);
+}
