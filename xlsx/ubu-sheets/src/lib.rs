@@ -119,6 +119,16 @@ pub struct EditResult {
 impl Book {
     /// Open a workbook; `name` gives the format by extension when the bytes don't say.
     pub fn open(bytes: &[u8], name: &str, password: Option<&str>) -> Result<Book> {
+        // The engine reads text named `.xlsx` as text (a one-column sheet of whatever the bytes
+        // were). The viewer wants a workbook: a name that promises a package whose bytes are
+        // plain text is refused. A `.csv` (or any other name) still opens as text.
+        let package_name = std::path::Path::new(name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| ["xlsx", "xlsm", "xltx", "xltm", "xls", "xlsb", "ods"].contains(&e.to_ascii_lowercase().as_str()));
+        if package_name && matches!(gridcraft_xlsx::sniff(bytes), gridcraft_xlsx::Format::Csv | gridcraft_xlsx::Format::Unknown) {
+            return Err(SheetsError::new(ErrorCode::Invalid, format!("'{name}' is not a workbook: its content is plain text")));
+        }
         let (wb, warnings) = io::open_bytes_with_password(name, bytes, password).map_err(|e| open_error(&e.to_string()))?;
         let mut session = Session::new();
         session.add_document(DocState::new(wb, None, name.to_string()));

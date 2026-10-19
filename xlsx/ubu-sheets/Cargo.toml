@@ -15,6 +15,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 gridcraft-engine = { workspace = true }
 gridcraft-chart = { workspace = true }
+gridcraft-xlsx = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

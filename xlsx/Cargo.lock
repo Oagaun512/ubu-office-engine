@@ -638,6 +638,7 @@ version = "0.1.0"
 dependencies = [
  "gridcraft-chart",
  "gridcraft-engine",
+ "gridcraft-xlsx",
  "js-sys",
  "serde",
  "serde_json",

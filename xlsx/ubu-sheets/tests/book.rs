@@ -53,7 +53,8 @@ fn general_numbers_fit_their_column_and_hashes_fill_a_column_too_narrow() {
     let book = Book::open(&bytes, "t.xlsx", None).unwrap();
     let w = window(&book, 0, 1);
     let a1 = cell(&w, 0, 0).unwrap()[2].as_str().unwrap().to_string();
-    assert!(a1.len() <= 11 && a1.starts_with("123456789"), "General narrows to the column: {a1}");
+    // A default column (64 px) holds 8 digits of 7 px: Excel shows this number as 1.23E+08.
+    assert_eq!(a1, "1.23E+08", "General narrows to the column");
     let b1 = cell(&w, 0, 1).unwrap()[2].as_str().unwrap().to_string();
     assert!(b1.chars().all(|c| c == '#'), "too narrow for the number: {b1}");
     let full: Value = serde_json::from_str(&book.window(0, 0, 0, 0, 0, 0.0).unwrap()).unwrap();
@@ -110,7 +111,19 @@ fn bad_commands_and_files_are_errors_not_panics() {
     assert_eq!(book.run("file.open", "{}").unwrap_err().code, ErrorCode::InvalidCommand, "the viewer owns files");
     assert_eq!(book.window(0, 0, 0, 1_000, 1_000, 7.0).unwrap_err().code, ErrorCode::OutOfRange, "a window is capped");
     assert_eq!(book.layout(9).unwrap_err().code, ErrorCode::OutOfRange);
-    assert_eq!(Book::open(b"not a workbook at all", "x.xlsx", None).err().unwrap().code, ErrorCode::Invalid);
+    assert_eq!(Book::open(b"not a workbook at all", "x.xlsx", None).err().unwrap().code, ErrorCode::Invalid, "text named .xlsx");
+    assert_eq!(Book::open(b"PK broken zip", "x.xlsx", None).err().unwrap().code, ErrorCode::Invalid, "a broken package");
+    assert!(
+        Book::open(
+            b"a,b
+1,2
+",
+            "x.csv",
+            None
+        )
+        .is_ok(),
+        "a CSV still opens as text"
+    );
     assert_eq!(ErrorCode::NeedsPassword.code(), "needs_password");
     assert_eq!(ErrorCode::Unsupported.code(), "unsupported");
 }
