@@ -1,0 +1,15 @@
+Standard-14 font metrics in the spreadsheet engine's PDF export
+
+upstream/gridcraft/crates/pdf/src/metrics.rs reproduces the numeric glyph advance widths ("WX"
+values) of Adobe's Core 14 AFM font metrics files (Helvetica, Helvetica-Bold, Times-Roman,
+Times-Bold, Courier), typed in from the public metrics. No AFM file is included. Adobe distributes
+those files under these terms, quoted unmodified:
+
+  This file and the 14 PostScript(R) AFM files it accompanies may be used, copied, and
+  distributed for any purpose and without charge, with or without modification, provided that all
+  copyright notices are retained; that the AFM files are not distributed without this file; that
+  all modifications to this file or any of the AFM files are prominently noted in the modified
+  file(s); and that this paragraph is not modified.
+
+The AFM files are Copyright (c) 1985-1997 Adobe Systems Incorporated. All Rights Reserved.
+PostScript is a trademark of Adobe.

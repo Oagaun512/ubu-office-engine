@@ -7,3 +7,6 @@
 [submodule "upstream/wordcraft"]
 	path = upstream/wordcraft
 	url = https://github.com/Oagaun512/wordcraft
+[submodule "upstream/gridcraft"]
+	path = upstream/gridcraft
+	url = https://github.com/Oagaun512/gridcraft
