@@ -190,9 +190,37 @@ jobs:
           path: out/
           if-no-files-found: error
 
+  roundtrip:
+    name: docx round trip and fidelity on the POI corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docx-roundtrip
+          workspaces: docx
+      - name: Fetch corpus (pinned)
+        run: sh scripts/fetch-docx-corpus.sh
+      - name: Build the round-trip runner (panic = abort, as in the browser)
+        working-directory: docx
+        run: cargo build --locked --profile corpus -p ubu-docx --example roundtrip
+      - name: Run
+        run: |
+          mkdir -p out
+          node scripts/roundtrip-docx.mjs docx/target/corpus/examples/roundtrip corpus/cache/poi/test-data/document > out/ROUNDTRIP.md
+          sed -n '/^- Files/,/^$/p' out/ROUNDTRIP.md | sed '1i ## DOCX round trip (POI corpus)' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ubu-docx-roundtrip
+          path: out/ROUNDTRIP.md
+          if-no-files-found: error
+
   bundle:
     name: assemble the Ubunex docx bundle
-    needs: [check, test, wasm, licences]
+    needs: [check, test, wasm, licences, roundtrip]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -211,6 +239,7 @@ jobs:
           cp artifacts/ubu-docx-pkg/ubu_docx.js artifacts/ubu-docx-pkg/ubu_docx.d.ts \
              artifacts/ubu-docx-pkg/ubu_docx_bg.wasm artifacts/ubu-docx-pkg/ubu_docx_bg.wasm.d.ts \
              artifacts/ubu-docx-pkg/SIZE.md "$d/"
+          cp artifacts/ubu-docx-roundtrip/ROUNDTRIP.md "$d/"
           cp artifacts/ubu-docx-licences/SBOM.md "$d/"
           cp -r artifacts/ubu-docx-licences/LICENSES "$d/"
           cp NOTICE "$d/NOTICE"
@@ -234,7 +263,7 @@ jobs:
           - `ubu_docx_bg.wasm`: the engine
           - `VERSION`: the exact commits and tool versions that produced them
           - `SBOM.md`, `LICENSES/`, `NOTICE`: what is inside and under which licences
-          - `SIZE.md`: measured size
+          - `SIZE.md`, `ROUNDTRIP.md`: measured size and the corpus round-trip and fidelity report
           MD
           sed -i 's/^          //' "$d/README.md"
           find dist -type f | sort
@@ -310,6 +339,8 @@ jobs:
             cat src/vendor/ubu-office/docx/SIZE.md
             echo
             echo "**SBOM change:** ${sbom:-none}"
+            echo
+            sed -n '/^- Files/,/^$/p' src/vendor/ubu-office/docx/ROUNDTRIP.md
             echo
             echo "Verify before merging: \`npm run typecheck\`, \`npm run build\`, \`npm run test:unit\`."
           } > ../body.md
