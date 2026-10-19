@@ -42,6 +42,11 @@ pub enum ErrorCode {
     ExportFailed,
     /// The document could not be written back as DOCX.
     SaveFailed,
+    /// The file uses something the engine cannot open yet (an older kind of encryption, the D4
+    /// corpus found Office 2007 "Standard" encryption).
+    Unsupported,
+    /// An editing command was unknown, given bad parameters, not available, or failed (D5).
+    InvalidCommand,
 }
 
 impl ErrorCode {
@@ -53,6 +58,8 @@ impl ErrorCode {
             Self::OutOfRange => "out_of_range",
             Self::ExportFailed => "export_failed",
             Self::SaveFailed => "save_failed",
+            Self::Unsupported => "unsupported",
+            Self::InvalidCommand => "invalid_command",
         }
     }
 }
@@ -130,15 +137,22 @@ impl Document {
                 ErrorCode::NeedsPassword
             } else if wordcraft_engine::io::wrong_password(&e) {
                 ErrorCode::WrongPassword
+            } else if e.contains("can't open yet") {
+                // wordcraft says so for encryption it does not implement (Office 2007 Standard).
+                ErrorCode::Unsupported
             } else {
                 ErrorCode::Invalid
             };
             DocxError::new(code, e)
         })?;
-        let session = Session::new(doc);
-        let layout = session.export_layout();
-        // Print view without markup: headers and footers at full strength, tracked changes as
-        // the final text (Word's "No Markup").
+        let mut session = Session::new(doc);
+        // Print view without markup, the same view for reading and editing: hit-testing and the
+        // caret (D5) use the session's own cached layout, so the pages drawn must come from it
+        // too. No spelling squiggles (proofing off); tracked changes as the final text.
+        session.view.show_markup = false;
+        session.view.proofing = false;
+        let layout = session.layout();
+        // Headers and footers at full strength (Word's "No Markup").
         let render =
             RenderOptions { display: DisplayOptions { dim_header: false, markup: false, ..DisplayOptions::default() }, ..RenderOptions::default() };
         Ok(Self { session, layout, render })
@@ -287,8 +301,95 @@ impl Document {
     /// Lay the document out again (after [`add_font`]: text set in a newly available face moves).
     pub fn relayout(&mut self) {
         self.session.relayout();
-        self.layout = self.session.export_layout();
+        self.layout = self.session.layout();
     }
+
+    // ── Editing (Ubu Office Phase 3, D5) ─────────────────────────────────────────────────────
+
+    /// Run one of wordcraft's editing commands (`text.insert`, `caret.set`, `edit.undo`, …) with
+    /// its JSON parameters, and lay the document out again if it changed. Every mutating
+    /// command is one undo step (the session's own undo). Positions never leave the engine: the
+    /// viewer sends page points (`caret.set {page, x, y, extend}`) and reads back [`Self::caret`]
+    /// and [`Self::selection_rects`].
+    pub fn run(&mut self, command: &str, params_json: &str) -> Result<EditResult, DocxError> {
+        let params: serde_json::Value = if params_json.trim().is_empty() {
+            serde_json::Value::Object(Default::default())
+        } else {
+            serde_json::from_str(params_json).map_err(|e| DocxError::new(ErrorCode::InvalidCommand, format!("parameters are not JSON: {e}")))?
+        };
+        let before = self.session.rev();
+        let result = self.session.run(command, &params).map_err(|e| DocxError::new(ErrorCode::InvalidCommand, e.to_string()))?;
+        let changed = self.session.rev() != before;
+        if changed {
+            self.layout = self.session.layout();
+        }
+        Ok(EditResult { result: result.to_string(), changed, rev: self.session.rev(), page_count: self.page_count() })
+    }
+
+    /// The caret (the selection's focus end), as a box on its page, or None when it is not on
+    /// a laid-out line (inside a turned text box, say).
+    pub fn caret(&self) -> Option<CaretBox> {
+        let c = self.layout.caret_on(&self.session.sel.focus, self.caret_page_hint())?;
+        Some(CaretBox { page: c.page, x: c.x, top: c.top, height: c.height })
+    }
+
+    /// The selection as boxes, each on its page (empty for a plain caret).
+    pub fn selection_rects(&self) -> Vec<(usize, [f32; 4])> {
+        let (a, b) = self.session.sel.ordered();
+        if a == b {
+            return Vec::new();
+        }
+        self.layout
+            .selection_rects(&self.session.doc, &a, &b, self.caret_page_hint())
+            .into_iter()
+            .map(|(page, r)| (page, [r.x, r.y, r.x + r.w, r.y + r.h]))
+            .collect()
+    }
+
+    /// Whether the document changed since it was opened (or last marked saved).
+    pub fn is_dirty(&self) -> bool {
+        self.session.dirty
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.session.can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.session.can_redo()
+    }
+
+    /// The text the last `edit.copy` or `edit.cut` put on the session clipboard, for the
+    /// viewer to hand to the system clipboard.
+    pub fn clipboard_text(&self) -> &str {
+        &self.session.clipboard_text
+    }
+
+    /// The page to search first for the caret: the one it was last laid out on.
+    fn caret_page_hint(&self) -> usize {
+        self.layout.page_of(&self.session.sel.focus).unwrap_or(0)
+    }
+}
+
+/// What an editing command did.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EditResult {
+    /// The command's own JSON result (usually the selection after it).
+    pub result: String,
+    /// The document changed (pages must be drawn again).
+    pub changed: bool,
+    /// The session's revision after the command.
+    pub rev: u64,
+    pub page_count: usize,
+}
+
+/// The caret on a page: x, the top of its line, and its height, in page points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CaretBox {
+    pub page: usize,
+    pub x: f32,
+    pub top: f32,
+    pub height: f32,
 }
 
 /// Make a font available to every document in this instance (TTF/OTF; WOFF/WOFF2 are decoded).

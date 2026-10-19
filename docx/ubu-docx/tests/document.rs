@@ -181,3 +181,77 @@ fn a_break_at_the_end_of_a_line_is_not_copied() {
         }
     }
 }
+
+// ── Editing (Ubu Office Phase 3, D5) ─────────────────────────────────────────────────────────
+
+#[test]
+fn typing_changes_the_document_lays_it_out_again_and_undoes() {
+    let mut doc = Document::open(&docx(&[Some("Hello")]), "t.docx", None).unwrap();
+    assert!(!doc.is_dirty() && !doc.can_undo());
+    let moved = doc.run("caret.docEnd", "{}").unwrap();
+    assert!(!moved.changed, "moving the caret changes nothing");
+    let typed = doc.run("text.insert", r#"{"text":" world"}"#).unwrap();
+    assert!(typed.changed && typed.rev > moved.rev);
+    assert_eq!(doc.page_text(0).unwrap().trim(), "Hello world");
+    assert_eq!(doc.page_text_layer(0).unwrap()[0].text, "Hello world", "the text layer follows the edit");
+    assert!(doc.is_dirty() && doc.can_undo());
+    doc.run("edit.undo", "").unwrap();
+    assert_eq!(doc.page_text(0).unwrap().trim(), "Hello");
+    assert!(doc.can_redo());
+    doc.run("edit.redo", "").unwrap();
+    assert_eq!(doc.page_text(0).unwrap().trim(), "Hello world");
+}
+
+#[test]
+fn enter_and_backspace_split_and_join_paragraphs() {
+    let mut doc = Document::open(&docx(&[Some("AB")]), "t.docx", None).unwrap();
+    doc.run("caret.docStart", "{}").unwrap();
+    doc.run("caret.right", "{}").unwrap();
+    doc.run("text.newParagraph", "{}").unwrap();
+    assert_eq!(doc.page_text_layer(0).unwrap().iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), ["A", "B"]);
+    doc.run("text.backspace", "{}").unwrap();
+    assert_eq!(doc.page_text(0).unwrap().trim(), "AB");
+}
+
+#[test]
+fn the_caret_and_selection_are_boxes_on_the_page() {
+    let mut doc = Document::open(&docx(&[Some("Select me")]), "t.docx", None).unwrap();
+    let line = doc.page_text_layer(0).unwrap()[0].rect;
+    doc.run("caret.docStart", "{}").unwrap();
+    let start = doc.caret().expect("a caret on the first line");
+    assert_eq!(start.page, 0);
+    assert!((start.x - line[0]).abs() < 1.0 && start.top >= line[1] - 1.0 && start.height > 0.0);
+    assert!(doc.selection_rects().is_empty(), "a plain caret has no selection");
+    doc.run("caret.end", r#"{"extend":true}"#).unwrap();
+    let rects = doc.selection_rects();
+    assert!(!rects.is_empty());
+    assert_eq!(rects[0].0, 0);
+    assert!(rects[0].1[2] > rects[0].1[0] + 10.0, "the selection covers the words");
+    // A click: caret.set by page point lands on the line it hits.
+    let mid = [(line[0] + line[2]) / 2.0, (line[1] + line[3]) / 2.0];
+    doc.run("caret.set", &format!(r#"{{"page":0,"x":{},"y":{}}}"#, mid[0], mid[1])).unwrap();
+    let c = doc.caret().unwrap();
+    assert!(c.x > line[0] && c.x < line[2], "the caret lands inside the line");
+    assert!(doc.selection_rects().is_empty());
+}
+
+#[test]
+fn copy_puts_the_selection_on_the_clipboard_and_paste_inserts_text() {
+    let mut doc = Document::open(&docx(&[Some("Copy this")]), "t.docx", None).unwrap();
+    doc.run("select.all", "{}").unwrap();
+    doc.run("edit.copy", "{}").unwrap();
+    assert_eq!(doc.clipboard_text().trim(), "Copy this");
+    doc.run("caret.docEnd", "{}").unwrap();
+    doc.run("edit.paste", r#"{"text":" and that"}"#).unwrap();
+    assert_eq!(doc.page_text(0).unwrap().trim(), "Copy this and that");
+}
+
+#[test]
+fn bad_commands_are_errors_not_panics() {
+    let mut doc = Document::open(&docx(&[Some("x")]), "t.docx", None).unwrap();
+    assert_eq!(doc.run("no.such.command", "{}").err().unwrap().code, ErrorCode::InvalidCommand);
+    assert_eq!(doc.run("text.insert", "not json").err().unwrap().code, ErrorCode::InvalidCommand);
+    assert_eq!(doc.run("text.insert", r#"{"wrong":1}"#).err().unwrap().code, ErrorCode::InvalidCommand);
+    assert_eq!(ErrorCode::Unsupported.code(), "unsupported");
+    assert_eq!(ErrorCode::InvalidCommand.code(), "invalid_command");
+}

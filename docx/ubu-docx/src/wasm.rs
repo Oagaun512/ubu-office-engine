@@ -100,6 +100,52 @@ impl DocxDocument {
     pub fn relayout(&mut self) {
         self.inner.relayout();
     }
+
+    /// Run an editing command (`text.insert`, `caret.set`, `edit.undo`, …) with its JSON
+    /// parameters. Returns JSON: `{"result": <the command's result>, "changed": bool, "rev": n,
+    /// "pageCount": n}`. Throws a `DocxError` (`code`: invalid_command).
+    pub fn run(&mut self, command: &str, params_json: &str) -> Result<String, JsValue> {
+        let r = self.inner.run(command, params_json).map_err(js_error)?;
+        Ok(format!("{{\"result\":{},\"changed\":{},\"rev\":{},\"pageCount\":{}}}", r.result, r.changed, r.rev, r.page_count))
+    }
+
+    /// The caret as 4 numbers: page, x, top, height (page points); empty when it is not on a
+    /// laid-out line.
+    pub fn caret(&self) -> Vec<f32> {
+        self.inner.caret().map(|c| vec![c.page as f32, c.x, c.top, c.height]).unwrap_or_default()
+    }
+
+    /// The selection as 5 numbers per box: page, x0, y0, x1, y1 (empty for a plain caret).
+    #[wasm_bindgen(js_name = selectionRects)]
+    pub fn selection_rects(&self) -> Vec<f32> {
+        let mut out = Vec::new();
+        for (page, r) in self.inner.selection_rects() {
+            out.push(page as f32);
+            out.extend_from_slice(&r);
+        }
+        out
+    }
+
+    /// The text the last `edit.copy` or `edit.cut` put on the clipboard.
+    #[wasm_bindgen(js_name = clipboardText)]
+    pub fn clipboard_text(&self) -> String {
+        self.inner.clipboard_text().to_owned()
+    }
+
+    #[wasm_bindgen(getter, js_name = isDirty)]
+    pub fn is_dirty(&self) -> bool {
+        self.inner.is_dirty()
+    }
+
+    #[wasm_bindgen(getter, js_name = canUndo)]
+    pub fn can_undo(&self) -> bool {
+        self.inner.can_undo()
+    }
+
+    #[wasm_bindgen(getter, js_name = canRedo)]
+    pub fn can_redo(&self) -> bool {
+        self.inner.can_redo()
+    }
 }
 
 /// A page size in points.
