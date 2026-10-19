@@ -28,6 +28,16 @@ into Ubunex with the engine). Nothing here is committed or shipped.
 `scripts/roundtrip-xlsx.mjs` writes the round-trip report (ROUNDTRIP.md, vendored into Ubunex
 with the engine). Nothing here is committed or shipped.
 
+## Presentations (Ubu Office Phase 5, P2)
+
+| Source | Pinned at | Licence | What |
+|---|---|---|---|
+| [apache/poi](https://github.com/apache/poi) `test-data/slideshow/*.{pptx,pptm,ppsx,potx,ppt}` | `bf7c9b6a1490046517cbd8e1504e702a89be4bc9` | Apache-2.0 (repository; `legal/LICENSE`, `legal/NOTICE` fetched with them) | Apache POI's slideshow test data, many from real bug reports: 100 PowerPoint 2007+ files and 145 old `.ppt` files (the engine refuses those, D26; the run checks it does so cleanly). |
+
+`scripts/fetch-pptx-corpus.sh` downloads them into `corpus/cache/poi-slideshow/`, and
+`scripts/roundtrip-pptx.mjs` writes the round-trip report (ROUNDTRIP.md, vendored into Ubunex
+with the engine). Nothing here is committed or shipped.
+
 ## Our own real-world files (decision D6, open)
 
 Messy real-world PDFs and Word documents from the founder or public sources go in a separate
