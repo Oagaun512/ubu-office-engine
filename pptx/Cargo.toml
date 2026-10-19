@@ -1,0 +1,59 @@
+# The presentation engine's own workspace (Ubu Office Phase 5, P1; decision D23).
+#
+# Separate from the PDF engine's (the root), the DOCX engine's (`docx/`) and the spreadsheet
+# engine's (`xlsx/`), as D16 set out: each upstream keeps its own dependency graph and Cargo.lock.
+# The deckcraft fork carries one patch of ours (Oagaun512/deckcraft, branch ubu/media-optional):
+# a default-on `media` feature on deckcraft-engine, which we turn off, so the browser build links
+# no audio or video decoder (no codecs, no MPL-2.0 symphonia; D23). CI checks that the fork is
+# upstream's pinned commit plus that one patch, touching nothing outside crates/engine.
+[workspace]
+resolver = "3"
+members = ["ubu-slides"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+repository = "https://github.com/Oagaun512/ubu-office-engine"
+publish = false
+
+[workspace.dependencies]
+deckcraft-engine = { path = "../upstream/deckcraft/crates/engine", default-features = false }
+deckcraft-model = { path = "../upstream/deckcraft/crates/model" }
+deckcraft-render = { path = "../upstream/deckcraft/crates/render" }
+deckcraft-pptx = { path = "../upstream/deckcraft/crates/pptx" }
+deckcraft-fonts = { path = "../upstream/deckcraft/crates/fonts" }
+kurbo = "0.13"
+wasm-bindgen = "=0.2.129"
+js-sys = "0.3"
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# The corpus round-trip runner (P2): optimised like a release build and, like the browser build,
+# panic = "abort", so a presentation that panics shows up as a crash. Thin LTO keeps it quick.
+[profile.corpus]
+inherits = "release"
+opt-level = 2
+lto = "thin"
+codegen-units = 16
+strip = "none"
+
+# Native test runs: rendering in the tests stays fast with optimised dependencies.
+[profile.dev.package."*"]
+opt-level = 2
+debug = "line-tables-only"
+
+[patch.crates-io]
+krilla = { path = "../upstream/craft-libs/vendor/krilla" }
+
+# deckcraft takes craft-pdf (and krilla) from the storytold/craft-libs git repository at c3487320;
+# the same commit is mounted from our fork, so nothing is fetched from git at build time.
+[patch."https://github.com/storytold/craft-libs"]
+craft-pdf = { path = "../upstream/craft-libs/crates/pdf" }

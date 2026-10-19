@@ -1,0 +1,161 @@
+//! The browser binding: `wasm-bindgen` classes over [`crate::Deck`]. Type conversion only;
+//! every behaviour lives in the plain-Rust API so native tests cover it.
+//!
+//! The generated TypeScript must match `contract/ubu_slides.d.ts` (checked in CI), so renaming
+//! anything here is a contract change for Ubunex.
+
+use wasm_bindgen::prelude::*;
+
+use crate::{Deck, SlidesError};
+
+/// A thrown `Error` with `name = "SlidesError"` and a machine-readable `code` (see `ErrorCode`).
+fn js_error(e: SlidesError) -> JsValue {
+    let err = js_sys::Error::new(&e.message);
+    err.set_name("SlidesError");
+    // Setting a property on a fresh Error object cannot fail.
+    let _ = js_sys::Reflect::set(&err, &JsValue::from_str("code"), &JsValue::from_str(e.code.code()));
+    err.into()
+}
+
+/// A rendered slide: straight RGBA pixels, row by row (for `ImageData`). Call `free()` when done.
+#[wasm_bindgen]
+pub struct SlidePicture {
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl SlidePicture {
+    #[wasm_bindgen(getter)]
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// The pixels (a copy; take them once).
+    #[wasm_bindgen(getter)]
+    pub fn pixels(&self) -> Vec<u8> {
+        self.pixels.clone()
+    }
+}
+
+/// An open presentation. Call `free()` when done.
+#[wasm_bindgen]
+pub struct SlideDeck {
+    inner: Deck,
+}
+
+#[wasm_bindgen]
+impl SlideDeck {
+    /// Open a presentation (`.pptx`, `.ppsx`, `.potx`); `name` is for messages. Throws a
+    /// `SlidesError` (`code`: invalid, unsupported).
+    pub fn open(bytes: &[u8], name: &str) -> Result<SlideDeck, JsValue> {
+        Deck::open(bytes, name).map(|inner| SlideDeck { inner }).map_err(js_error)
+    }
+
+    /// What opening noticed (slides left out, media that won't play here).
+    pub fn warnings(&self) -> Vec<String> {
+        self.inner.warnings().to_vec()
+    }
+
+    /// The presentation, as JSON: `{"width", "height"}` in points, `"slides"`, `"fonts"`,
+    /// `"missingFonts"`.
+    pub fn info(&self) -> String {
+        self.inner.info()
+    }
+
+    /// The slides, as JSON: `[{"id", "hidden", "notes"}]`.
+    pub fn slides(&self) -> String {
+        self.inner.slides()
+    }
+
+    /// Add a font file (TTF/OTF/TTC) for every presentation; returns how many faces it added.
+    #[wasm_bindgen(js_name = addFont)]
+    pub fn add_font(bytes: Vec<u8>) -> u32 {
+        Deck::add_font(bytes) as u32
+    }
+
+    /// Render a slide at `scale` pixels per point.
+    pub fn render(&self, slide: u32, scale: f64) -> Result<SlidePicture, JsValue> {
+        let img = self.inner.render(slide as usize, scale).map_err(js_error)?;
+        Ok(SlidePicture { width: img.width, height: img.height, pixels: img.pixels })
+    }
+
+    /// The text drawn on a slide, as JSON spans in points: `[{"text", "x", "y", "x2", "y2",
+    /// "size"}]` ((x, y) → (x2, y2) is the baseline).
+    #[wasm_bindgen(js_name = textLayer)]
+    pub fn text_layer(&self, slide: u32) -> Result<String, JsValue> {
+        self.inner.text_layer(slide as usize).map_err(js_error)
+    }
+
+    /// The slide's own shapes, back to front, as JSON: `[{"id", "box", "group", "parent"}]`.
+    pub fn shapes(&self, slide: u32) -> Result<String, JsValue> {
+        self.inner.shapes(slide as usize).map_err(js_error)
+    }
+
+    /// The text on a slide, in drawing order.
+    #[wasm_bindgen(js_name = slideText)]
+    pub fn slide_text(&self, slide: u32) -> Result<String, JsValue> {
+        self.inner.slide_text(slide as usize).map_err(js_error)
+    }
+
+    /// A slide's speaker notes.
+    pub fn notes(&self, slide: u32) -> Result<String, JsValue> {
+        self.inner.notes(slide as usize).map_err(js_error)
+    }
+
+    /// Run an engine command with its JSON parameters. Returns JSON: `{"result": <the command's
+    /// result>, "changed": bool, "rev": n, "slide": n, "slides": n}`. Throws a `SlidesError`
+    /// (`code`: invalid_command).
+    pub fn run(&mut self, command: &str, params_json: &str) -> Result<String, JsValue> {
+        let r = self.inner.run(command, params_json).map_err(js_error)?;
+        Ok(format!("{{\"result\":{},\"changed\":{},\"rev\":{},\"slide\":{},\"slides\":{}}}", r.result, r.changed, r.rev, r.slide, r.slides))
+    }
+
+    /// The selection, as JSON (the engine's own shape).
+    pub fn selection(&self) -> String {
+        self.inner.selection()
+    }
+
+    #[wasm_bindgen(getter, js_name = isDirty)]
+    pub fn is_dirty(&self) -> bool {
+        self.inner.is_dirty()
+    }
+
+    #[wasm_bindgen(getter, js_name = canUndo)]
+    pub fn can_undo(&self) -> bool {
+        self.inner.can_undo()
+    }
+
+    #[wasm_bindgen(getter, js_name = canRedo)]
+    pub fn can_redo(&self) -> bool {
+        self.inner.can_redo()
+    }
+
+    /// The presentation as PPTX.
+    #[wasm_bindgen(js_name = savePptx)]
+    pub fn save_pptx(&self) -> Result<Vec<u8>, JsValue> {
+        self.inner.save_pptx().map_err(js_error)
+    }
+
+    /// The presentation as PDF.
+    #[wasm_bindgen(js_name = exportPdf)]
+    pub fn export_pdf(&self) -> Result<Vec<u8>, JsValue> {
+        self.inner.export_pdf().map_err(js_error)
+    }
+}
+
+/// The engine build: this repository's commit and the deckcraft fork's commit.
+#[wasm_bindgen(js_name = engineVersion)]
+pub fn engine_version() -> String {
+    format!(
+        "ubu-office-engine {} (slides engine {})",
+        option_env!("UBU_ENGINE_COMMIT").unwrap_or("dev"),
+        option_env!("UBU_SLIDES_UPSTREAM_COMMIT").unwrap_or("dev")
+    )
+}

@@ -8,6 +8,7 @@ Headless WebAssembly document engines for **Ubu Office**, the document suite of
 | PDF | `crates/ubu-pdf` (root workspace) | open, render, text, find, protect, save |
 | Docs (DOCX) | `docx/ubu-docx` (own workspace) | open, render, text, find, edit, format, save, PDF |
 | Sheets (XLSX) | `xlsx/ubu-sheets` (own workspace) | S1 — open, layout, cell windows, commands, save XLSX/CSV, PDF |
+| Slides (PPTX) | `pptx/ubu-slides` (own workspace) | P1 — open, render slides, text layer, shapes, notes, commands, save PPTX, PDF (no media decoders; D23) |
 | Slides (PPTX) | — | planned |
 
 Each engine with a different upstream has its own Cargo workspace (and `Cargo.lock`), so one
@@ -34,6 +35,7 @@ scripts/setup-remotes.sh        # adds `upstream` remotes in each fork
 cargo test -p ubu-pdf           # native tests (PDF)
 cargo test --manifest-path docx/Cargo.toml -p ubu-docx
 cargo test --manifest-path xlsx/Cargo.toml -p ubu-sheets
+cargo test --manifest-path pptx/Cargo.toml -p ubu-slides
 ```
 
 ## Licence

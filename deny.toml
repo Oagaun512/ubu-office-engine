@@ -24,12 +24,22 @@ allow = [
     "CC0-1.0",
 ]
 
+# Font licences for one crate only: the slides engine compiles in Ubuntu Light, its last-resort
+# face, through epaint_default_fonts (whose other fonts are under OFL-1.1). Both are font licences
+# that allow bundling with software; their texts ship with the build (licenses/, NOTICE).
+[[licenses.exceptions]]
+crate = "epaint_default_fonts"
+allow = ["OFL-1.1", "Ubuntu-font-1.0"]
+
 [licenses.private]
 # Our own crates (publish = false) are MIT OR Apache-2.0 and checked by their manifests.
 ignore = true
 
 [bans]
 multiple-versions = "allow"
+# D23: no audio or video decoder in any browser build (deckcraft-media pulls the codecs and the
+# MPL-2.0 symphonia); the slides engine turns deckcraft-engine's `media` feature off.
+deny = [{ crate = "deckcraft-media" }, { crate = "symphonia" }]
 wildcards = "deny"
 allow-wildcard-paths = true
 

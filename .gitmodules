@@ -10,3 +10,6 @@
 [submodule "upstream/gridcraft"]
 	path = upstream/gridcraft
 	url = https://github.com/Oagaun512/gridcraft
+[submodule "upstream/deckcraft"]
+	path = upstream/deckcraft
+	url = https://github.com/Oagaun512/deckcraft
