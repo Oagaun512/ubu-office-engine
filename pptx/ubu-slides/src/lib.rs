@@ -28,12 +28,13 @@ mod wasm;
 use std::fmt;
 use std::sync::Arc;
 
+use deckcraft_anim::{ShowAction, ShowState, Timeline};
 use deckcraft_engine::cmd::file;
 use deckcraft_engine::tools::box_handles;
 use deckcraft_engine::{DocState, Mods, PointerEvent, PointerKind, Session};
 use deckcraft_fonts::FontDb;
 use deckcraft_model::{Presentation, Shape, ShapeKind};
-use kurbo::{Affine, Point};
+use kurbo::{Affine, Point, Vec2};
 use serde_json::{Value as Json, json};
 
 /// Why an operation failed. The string form (`code()`) is part of the TypeScript contract.
@@ -123,6 +124,8 @@ pub struct EditResult {
 pub struct Deck {
     session: Session,
     warnings: Vec<String>,
+    /// The slide show, while one runs (Phase 5 P7).
+    show: Option<ShowState>,
 }
 
 impl fmt::Debug for Deck {
@@ -164,7 +167,7 @@ impl Deck {
         }
         let mut session = Session::new();
         file::add_opened(&mut session, name, None, doc);
-        Ok(Deck { session, warnings })
+        Ok(Deck { session, warnings, show: None })
     }
 
     /// What opening noticed (slides left out, media that won't play here).
@@ -476,6 +479,126 @@ impl Deck {
         !self.state().history.redo.is_empty()
     }
 
+    /// Start the slide show (Phase 5 P7; decision D27) at slide `from`, or at the first slide of
+    /// the show order (hidden slides left out) when `from` is none. Returns `show_state()`.
+    pub fn show_start(&mut self, from: Option<usize>) -> Result<String> {
+        let doc = self.doc().clone();
+        let show = match from {
+            Some(i) => {
+                let i = self.slide_index(i)?;
+                ShowState::start_at(&doc, i)
+            }
+            None => ShowState::new(&doc),
+        };
+        self.show = Some(show);
+        self.show_settle();
+        Ok(self.show_state())
+    }
+
+    /// Click, →, Space: the next build step, else the next slide, else the end screen; past the
+    /// end screen the show is over (`ended` and `over`). Returns `show_state()`.
+    pub fn show_next(&mut self) -> String {
+        self.show_move(|s, p| s.next(p))
+    }
+
+    /// ←, Backspace: undo the last build step, else the previous slide, fully built.
+    pub fn show_prev(&mut self) -> String {
+        self.show_move(|s, p| s.prev(p))
+    }
+
+    /// Go to slide `slide` (from its first build step).
+    pub fn show_goto(&mut self, slide: usize) -> Result<String> {
+        let i = self.slide_index(slide)?;
+        Ok(self.show_move(|s, p| s.goto(p, i)))
+    }
+
+    /// Leave the slide show.
+    pub fn show_end(&mut self) {
+        self.show = None;
+    }
+
+    fn show_move(&mut self, f: impl FnOnce(&mut ShowState, &Presentation) -> ShowAction) -> String {
+        let doc = self.doc().clone();
+        let mut over = false;
+        if let Some(show) = self.show.as_mut() {
+            over = f(show, &doc) == ShowAction::Exit;
+        }
+        if over {
+            self.show = None;
+        } else {
+            self.show_settle();
+        }
+        self.show_state_with(over)
+    }
+
+    /// Builds land at their end (D27: no tweening; a click shows what PowerPoint shows when that
+    /// step's animation has finished). A step that starts by itself (With or After Previous) is
+    /// played through too, as it would be in the show.
+    fn show_settle(&mut self) {
+        let doc = self.doc().clone();
+        let Some(show) = self.show.as_mut() else { return };
+        for _ in 0..1000 {
+            if show.ended {
+                return;
+            }
+            if show.playing {
+                show.step_done(&doc);
+                continue;
+            }
+            let tl = ShowState::timeline(&doc, show.slide);
+            if show.step < ShowState::steps(&doc, show.slide) && tl.step_is_auto(show.step) {
+                show.next(&doc);
+                continue;
+            }
+            return;
+        }
+    }
+
+    /// Where the show is, as JSON: `{"running", "slide", "step", "steps", "ended", "over",
+    /// "advanceAfter"}`: the slide shown, how many of its build steps are done of how many, the
+    /// end screen, the show finished, and seconds after which the slide moves on by itself (with
+    /// rehearsed timings), or null.
+    pub fn show_state(&self) -> String {
+        self.show_state_with(false)
+    }
+
+    fn show_state_with(&self, over: bool) -> String {
+        let doc = self.doc();
+        match &self.show {
+            Some(s) => json!({
+                "running": true,
+                "slide": s.slide,
+                "step": s.step,
+                "steps": ShowState::steps(doc, s.slide),
+                "ended": s.ended,
+                "over": false,
+                "advanceAfter": s.advance_after(doc),
+            }),
+            None => json!({"running": false, "slide": 0, "step": 0, "steps": 0, "ended": over, "over": over, "advanceAfter": null}),
+        }
+        .to_string()
+    }
+
+    /// The show's current slide as the audience sees it, at `scale` pixels per point: the build
+    /// steps done so far applied (shapes not yet built are hidden, emphasis and motion at their
+    /// end). The end screen draws nothing (the page shows its own).
+    pub fn show_render(&self, scale: f64) -> Result<SlideImage> {
+        let Some(show) = self.show.as_ref().filter(|s| !s.ended) else {
+            return Err(SlidesError::new(ErrorCode::OutOfRange, "no slide show is running"));
+        };
+        if !(scale.is_finite() && scale > 0.0 && scale <= 16.0) {
+            return Err(SlidesError::new(ErrorCode::OutOfRange, format!("scale {scale} is outside 0–16 pixels per point")));
+        }
+        let doc = self.doc();
+        let i = self.slide_index(show.slide)?;
+        let tl = ShowState::timeline(doc, i);
+        let step = show.step;
+        let state = |id: deckcraft_model::ShapeId| shape_state(&tl, id, step);
+        let opts = deckcraft_render::RenderOpts { scale: file::image_scale(doc, scale), state: Some(&state), ..Default::default() };
+        let img = deckcraft_render::render_slide(doc, i, &opts);
+        Ok(SlideImage { width: img.width, height: img.height, pixels: img.to_straight() })
+    }
+
     /// The presentation as PPTX.
     pub fn save_pptx(&self) -> Result<Vec<u8>> {
         file::save_bytes(self.doc(), "pptx").map_err(|e| SlidesError::new(ErrorCode::SaveFailed, e.to_string()))
@@ -484,6 +607,29 @@ impl Deck {
     /// The presentation as PDF: one page per slide (hidden ones left out), with a text layer.
     pub fn export_pdf(&self) -> Result<Vec<u8>> {
         file::pdf_bytes(self.doc(), &json!({})).map_err(|e| SlidesError::new(ErrorCode::ExportFailed, e.to_string()))
+    }
+}
+
+/// A shape's (and its paragraphs') state when `step` build steps are done: the mapping the
+/// upstream slide show uses (its preview module), with the current step not started.
+fn shape_state(tl: &Timeline, id: deckcraft_model::ShapeId, step: usize) -> deckcraft_render::ShapeState {
+    let a = tl.state(id, None, step, 0.0);
+    deckcraft_render::ShapeState {
+        visible: a.visible,
+        opacity: a.opacity,
+        offset: Vec2::new(a.offset_x, a.offset_y),
+        scale: (a.scale_x, a.scale_y),
+        rotate: a.rotate,
+        clip: a.clip,
+        tint: a.tint,
+        paras: tl
+            .paragraph_targets(id)
+            .into_iter()
+            .map(|p| {
+                let a = tl.state(id, Some(p), step, 0.0);
+                (p, deckcraft_render::ParaState { visible: a.visible, opacity: a.opacity, offset: Vec2::new(a.offset_x, a.offset_y) })
+            })
+            .collect(),
     }
 }
 

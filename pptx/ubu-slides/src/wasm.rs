@@ -198,6 +198,51 @@ impl SlideDeck {
         self.inner.can_redo()
     }
 
+    /// Start the slide show at `from` (or the first slide of the show order). Returns
+    /// `showState()`.
+    #[wasm_bindgen(js_name = showStart)]
+    pub fn show_start(&mut self, from: Option<u32>) -> Result<String, JsValue> {
+        self.inner.show_start(from.map(|f| f as usize)).map_err(js_error)
+    }
+
+    /// The next build step, slide or the end screen. Returns `showState()`.
+    #[wasm_bindgen(js_name = showNext)]
+    pub fn show_next(&mut self) -> String {
+        self.inner.show_next()
+    }
+
+    /// Back one build step, or to the previous slide fully built. Returns `showState()`.
+    #[wasm_bindgen(js_name = showPrev)]
+    pub fn show_prev(&mut self) -> String {
+        self.inner.show_prev()
+    }
+
+    /// Go to a slide in the show. Returns `showState()`.
+    #[wasm_bindgen(js_name = showGoto)]
+    pub fn show_goto(&mut self, slide: u32) -> Result<String, JsValue> {
+        self.inner.show_goto(slide as usize).map_err(js_error)
+    }
+
+    /// Leave the slide show.
+    #[wasm_bindgen(js_name = showEnd)]
+    pub fn show_end(&mut self) {
+        self.inner.show_end()
+    }
+
+    /// Where the show is, as JSON: `{"running", "slide", "step", "steps", "ended", "over",
+    /// "advanceAfter"}`.
+    #[wasm_bindgen(js_name = showState)]
+    pub fn show_state(&self) -> String {
+        self.inner.show_state()
+    }
+
+    /// The show's current slide as the audience sees it, at `scale` pixels per point.
+    #[wasm_bindgen(js_name = showRender)]
+    pub fn show_render(&self, scale: f64) -> Result<SlidePicture, JsValue> {
+        let img = self.inner.show_render(scale).map_err(js_error)?;
+        Ok(SlidePicture { width: img.width, height: img.height, pixels: img.pixels })
+    }
+
     /// The presentation as PPTX.
     #[wasm_bindgen(js_name = savePptx)]
     pub fn save_pptx(&self) -> Result<Vec<u8>, JsValue> {

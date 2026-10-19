@@ -74,6 +74,15 @@ if (isMainThread) {
     check(JSON.parse(deck.overlay()).shapes[0].handles[4][0] === sx, "undone");
     const edited = deck.render(0, 0.5, true);
     edited.free();
+    // The slide show (Phase 5 P7).
+    const shown = JSON.parse(deck.showStart(null));
+    check(shown.running && shown.slide === 0, `the show starts on slide 1, got ${JSON.stringify(shown)}`);
+    const frame = deck.showRender(1);
+    check(frame.width === Math.round(info.width), "a show frame");
+    frame.free();
+    check(JSON.parse(deck.showNext()).slide === 1, "the next slide");
+    check(JSON.parse(deck.showNext()).ended === true, "the end screen");
+    deck.showEnd();
     let refused = false;
     try {
       deck.run("no.such.command", "{}");
