@@ -8,7 +8,18 @@ PDFs are **not committed** here. CI fetches them:
 
 `scripts/fetch-corpus.sh` downloads them into `corpus/cache/` (git-ignored).
 
+## DOCX (Ubu Office Phase 3, D4)
+
+| Source | Pinned at | Licence | What |
+|---|---|---|---|
+| [apache/poi](https://github.com/apache/poi) `test-data/document/*.docx` | `bf7c9b6a1490046517cbd8e1504e702a89be4bc9` | Apache-2.0 (repository; `legal/LICENSE`, `legal/NOTICE` fetched with them) | 130 Word files from Apache POI's test data, many attached to real bug reports: unusual and damaged structure on purpose. |
+
+`scripts/fetch-docx-corpus.sh` downloads them into `corpus/cache/poi/`, and
+`scripts/roundtrip-docx.mjs` writes the round-trip and fidelity report (ROUNDTRIP.md, vendored
+into Ubunex with the engine). Nothing here is committed or shipped.
+
 ## Our own real-world files (decision D6, open)
 
-Messy real-world PDFs from the founder or public sources go in a separate store, never in this
-public repository if they hold personal data. Until D6 is settled the corpus is pdf.js only.
+Messy real-world PDFs and Word documents from the founder or public sources go in a separate
+store, never in this public repository if they hold personal data. Until D6 is settled the
+corpora are pdf.js and Apache POI only.
