@@ -29,7 +29,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use deckcraft_engine::cmd::file;
-use deckcraft_engine::{DocState, Session};
+use deckcraft_engine::tools::box_handles;
+use deckcraft_engine::{DocState, Mods, PointerEvent, PointerKind, Session};
 use deckcraft_fonts::FontDb;
 use deckcraft_model::{Presentation, Shape, ShapeKind};
 use kurbo::{Affine, Point};
@@ -214,14 +215,17 @@ impl Deck {
     }
 
     /// Render slide `slide` at `scale` pixels per point (clamped so the longer side stays within
-    /// the renderer's limit).
-    pub fn render(&self, slide: usize, scale: f64) -> Result<SlideImage> {
+    /// the renderer's limit). `edit` draws it as an editor does (Phase 5 P5): empty placeholders
+    /// show their prompts ("Click to add title") and dashed outlines, and the text being edited
+    /// shows markers on its empty list paragraphs.
+    pub fn render(&self, slide: usize, scale: f64, edit: bool) -> Result<SlideImage> {
         let i = self.slide_index(slide)?;
         if !(scale.is_finite() && scale > 0.0 && scale <= 16.0) {
             return Err(SlidesError::new(ErrorCode::OutOfRange, format!("scale {scale} is outside 0–16 pixels per point")));
         }
         let doc = self.doc();
-        let opts = deckcraft_render::RenderOpts { scale: file::image_scale(doc, scale), ..Default::default() };
+        let editing = self.state().selection.text.as_ref().filter(|t| edit && !t.notes).map(|t| t.shape);
+        let opts = deckcraft_render::RenderOpts { scale: file::image_scale(doc, scale), edit, editing_text: editing, ..Default::default() };
         let img = deckcraft_render::render_slide(doc, i, &opts);
         Ok(SlideImage { width: img.width, height: img.height, pixels: img.to_straight() })
     }
@@ -303,14 +307,155 @@ impl Deck {
         };
         let before = self.doc().clone();
         let result = self.session.execute(command, &params).map_err(|e| SlidesError::new(ErrorCode::InvalidCommand, e.to_string()))?;
+        Ok(self.finish(&before, result))
+    }
+
+    fn finish(&self, before: &Arc<Presentation>, result: Json) -> EditResult {
         let st = self.state();
-        Ok(EditResult {
+        EditResult {
             result: result.to_string(),
-            changed: !Arc::ptr_eq(&before, &st.doc),
+            changed: !Arc::ptr_eq(before, &st.doc),
             rev: st.revision,
             slide: st.selection.slide,
             slides: st.doc.slides.len(),
+        }
+    }
+
+    /// A pointer event on the current slide, in slide points (Phase 5 P5): the engine's own
+    /// editor tools decide what it does: a press selects or places the caret, a drag moves,
+    /// resizes or rotates the selection or selects text, a double click edits a shape's text or
+    /// selects a word. `kind`: `down`, `drag`, `up`, `move`, `double`, `triple`, `context`.
+    /// `mods`: 1 Shift, 2 Alt, 4 Ctrl (Cmd on a Mac). `tol`: the hit tolerance in points (about 4
+    /// screen pixels at the zoom shown). A finished gesture is one undo step.
+    pub fn pointer(&mut self, kind: &str, x: f64, y: f64, mods: u32, tol: f64) -> Result<EditResult> {
+        let kind = match kind {
+            "down" => PointerKind::Down,
+            "drag" => PointerKind::Drag,
+            "up" => PointerKind::Up,
+            "move" => PointerKind::Move,
+            "double" => PointerKind::DoubleClick,
+            "triple" => PointerKind::TripleClick,
+            "context" => PointerKind::ContextClick,
+            other => return Err(SlidesError::new(ErrorCode::InvalidCommand, format!("unknown pointer event `{other}`"))),
+        };
+        if !(x.is_finite() && y.is_finite() && tol.is_finite()) {
+            return Err(SlidesError::new(ErrorCode::InvalidCommand, "pointer coordinates must be numbers"));
+        }
+        let before = self.doc().clone();
+        let ev = PointerEvent { kind, x, y, mods: mods_of(mods), tol: tol.clamp(0.0, 100.0), pressure: None };
+        let result = self.session.pointer(ev).map_err(|e| SlidesError::new(ErrorCode::InvalidCommand, e.to_string()))?;
+        Ok(self.finish(&before, result))
+    }
+
+    /// A key press (`Enter`, `Backspace`, `ArrowLeft`, `Escape`, `Delete`, `Tab`, `Home`, or a
+    /// character with Ctrl for a shortcut, such as `z`): text keys while editing text, nudges and
+    /// Delete for a selection, the command shortcuts otherwise. The result says whether the
+    /// engine handled it (`{"handled": bool, …}`), so the page can leave the rest to the browser.
+    pub fn key(&mut self, key: &str, mods: u32) -> Result<EditResult> {
+        let before = self.doc().clone();
+        let result = self.session.key(key, mods_of(mods)).map_err(|e| SlidesError::new(ErrorCode::InvalidCommand, e.to_string()))?;
+        Ok(self.finish(&before, result))
+    }
+
+    /// Type text at the caret (or, with a shape selected and no text being edited, start editing
+    /// it with this text, as PowerPoint does).
+    pub fn type_text(&mut self, text: &str) -> Result<EditResult> {
+        let before = self.doc().clone();
+        let result = self.session.type_text(text).map_err(|e| SlidesError::new(ErrorCode::InvalidCommand, e.to_string()))?;
+        Ok(self.finish(&before, result))
+    }
+
+    /// An input method's composition so far (shown underlined in place), with the part being
+    /// converted (`active`, characters within `text`), or `commit_text` when it is accepted.
+    pub fn compose_text(&mut self, text: &str, active: Option<(usize, usize)>) -> Result<EditResult> {
+        let before = self.doc().clone();
+        let result = self.session.compose_text(text, active).map_err(|e| SlidesError::new(ErrorCode::InvalidCommand, e.to_string()))?;
+        Ok(self.finish(&before, result))
+    }
+
+    pub fn commit_text(&mut self, text: &str) -> Result<EditResult> {
+        let before = self.doc().clone();
+        let result = self.session.commit_text(text).map_err(|e| SlidesError::new(ErrorCode::InvalidCommand, e.to_string()))?;
+        Ok(self.finish(&before, result))
+    }
+
+    /// What an editor draws over the current slide, in slide points (Phase 5 P5), as JSON:
+    /// - `slide`: the current slide;
+    /// - `shapes`: each selected shape's `id`, its `corners` (4 points, as drawn, rotation
+    ///   included), its resize `handles` (8 points: NW, N, NE, E, SE, S, SW, W) and `rotate`
+    ///   handle, `line` (a line's two ends are its only handles: `ends`), `locked`;
+    /// - `editing`: the shape whose text is being edited, or null; `caret`: the insertion point
+    ///   as a line `[[x, y], [x, y]]` when nothing is selected in the text, with `caretColor`
+    ///   (`#rrggbb`, the colour of the text typed there); `textSelection`: the selected text as
+    ///   quads (4 points each); `composition`: an input method's underlines `[[x0, y0, x1, y1,
+    ///   thick]]`;
+    /// - `marquee`: the rubber band being dragged `[x0, y0, x1, y1]`, or null;
+    /// - `hover`: what the pointer is over (the engine's hit, for the cursor), or null.
+    pub fn overlay(&self) -> String {
+        use deckcraft_engine::cmd::text as tx;
+        let st = self.state();
+        let pt = |p: Point| json!([round2(p.x), round2(p.y)]);
+        let editing = st.selection.text.as_ref().filter(|t| !t.notes);
+        let shapes: Vec<Json> = st
+            .selection
+            .shapes
+            .iter()
+            .filter_map(|id| st.shape(*id))
+            .map(|sh| {
+                let x = deckcraft_engine::cmd::xfrm_of(&st.doc, &st.selection, sh);
+                let a = x.affine();
+                let corners: Vec<Json> =
+                    [(0.0, 0.0), (x.w, 0.0), (x.w, x.h), (0.0, x.h)].iter().map(|&(px, py)| pt(a * Point::new(px, py))).collect();
+                let (handles, rotate) = box_handles(&x);
+                let line = sh.is_line();
+                json!({
+                    "id": sh.id.0,
+                    "corners": corners,
+                    "handles": if line { Json::Array(vec![]) } else { Json::Array(handles.iter().map(|h| pt(*h)).collect()) },
+                    "rotate": if line { Json::Null } else { pt(rotate) },
+                    "line": line,
+                    "ends": if line { json!([pt(a * Point::new(0.0, 0.0)), pt(a * Point::new(x.w, x.h))]) } else { Json::Null },
+                    "locked": sh.locked,
+                })
+            })
+            .collect();
+        let caret = editing.filter(|t| !t.is_range()).and_then(|t| tx::caret_line(st, t)).map(|(top, bot)| json!([pt(top), pt(bot)]));
+        let caret_color = editing.and_then(|t| tx::caret_color(st, t)).map(|c| format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b));
+        let text_selection: Vec<Json> = editing
+            .filter(|t| t.is_range())
+            .and_then(|t| {
+                let (l, m) = tx::text_frame(st, t)?;
+                let (s0, s1) = t.ordered();
+                let pos = |p: (usize, usize)| deckcraft_text::Pos { para: p.0, ch: p.1 };
+                Some(
+                    l.selection_rects(pos(s0), pos(s1))
+                        .into_iter()
+                        .map(|r| {
+                            Json::Array(
+                                [(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1)].iter().map(|&(qx, qy)| pt(m * Point::new(qx, qy))).collect(),
+                            )
+                        })
+                        .collect(),
+                )
+            })
+            .unwrap_or_default();
+        let composition: Vec<Json> = tx::composition_underlines(st)
+            .into_iter()
+            .map(|(a, b, thick)| json!([round2(a.x), round2(a.y), round2(b.x), round2(b.y), thick]))
+            .collect();
+        let tool = &self.session.tool;
+        json!({
+            "slide": st.selection.slide,
+            "shapes": shapes,
+            "editing": editing.map(|t| t.shape.0),
+            "caret": caret,
+            "caretColor": caret_color,
+            "textSelection": text_selection,
+            "composition": composition,
+            "marquee": tool.marquee.map(|r| json!([round2(r.x0), round2(r.y0), round2(r.x1), round2(r.y1)])),
+            "hover": tool.hover.as_ref().and_then(|h| serde_json::to_value(h).ok()),
         })
+        .to_string()
     }
 
     /// The selection, as the engine keeps it (JSON): the current slide, selected slides and
@@ -340,6 +485,11 @@ impl Deck {
     pub fn export_pdf(&self) -> Result<Vec<u8>> {
         file::pdf_bytes(self.doc(), &json!({})).map_err(|e| SlidesError::new(ErrorCode::ExportFailed, e.to_string()))
     }
+}
+
+/// Modifier keys from the page's bit set: 1 Shift, 2 Alt, 4 Ctrl or Cmd.
+fn mods_of(bits: u32) -> Mods {
+    Mods { shift: bits & 1 != 0, alt: bits & 2 != 0, cmd: bits & 4 != 0 }
 }
 
 /// The characters `chars` of paragraph `para`.

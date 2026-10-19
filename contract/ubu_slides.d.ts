@@ -17,6 +17,15 @@ export class SlideDeck {
      */
     static addFont(bytes: Uint8Array): number;
     /**
+     * The input method's composition, accepted.
+     */
+    commitText(text: string): string;
+    /**
+     * An input method's composition so far; `active_start`/`active_end` (characters in `text`)
+     * mark the part being converted, when there is one.
+     */
+    composeText(text: string, active_start?: number | null, active_end?: number | null): string;
+    /**
      * The presentation as PDF.
      */
     exportPdf(): Uint8Array;
@@ -25,6 +34,11 @@ export class SlideDeck {
      * `"missingFonts"`.
      */
     info(): string;
+    /**
+     * A key press (`Enter`, `ArrowLeft`, `Delete`, …, or a character with Ctrl). `result.handled`
+     * says whether the engine used it. Returns the same JSON as `run`.
+     */
+    key(key: string, mods: number): string;
     /**
      * A slide's speaker notes.
      */
@@ -35,9 +49,22 @@ export class SlideDeck {
      */
     static open(bytes: Uint8Array, name: string): SlideDeck;
     /**
-     * Render a slide at `scale` pixels per point.
+     * What an editor draws over the current slide, as JSON in points: selected shapes (corners,
+     * handles, rotate handle), the text being edited (caret, caret colour, selected text),
+     * the rubber band and what the pointer is over.
      */
-    render(slide: number, scale: number): SlidePicture;
+    overlay(): string;
+    /**
+     * A pointer event on the current slide, in points: `kind` is `down`, `drag`, `up`, `move`,
+     * `double`, `triple` or `context`; `mods` 1 Shift, 2 Alt, 4 Ctrl/Cmd; `tol` the hit
+     * tolerance in points. Returns the same JSON as `run`.
+     */
+    pointer(kind: string, x: number, y: number, mods: number, tol: number): string;
+    /**
+     * Render a slide at `scale` pixels per point; `edit` draws it as an editor does
+     * (placeholder prompts and outlines).
+     */
+    render(slide: number, scale: number, edit: boolean): SlidePicture;
     /**
      * Run an engine command with its JSON parameters. Returns JSON: `{"result": <the command's
      * result>, "changed": bool, "rev": n, "slide": n, "slides": n}`. Throws a `SlidesError`
@@ -69,6 +96,10 @@ export class SlideDeck {
      * "size"}]` ((x, y) → (x2, y2) is the baseline).
      */
     textLayer(slide: number): string;
+    /**
+     * Type text at the caret (or start editing the selected shape with it).
+     */
+    typeText(text: string): string;
     /**
      * What opening noticed (slides left out, media that won't play here).
      */
@@ -103,6 +134,22 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;
 
+/**
+ * Instantiates the given `module`, which can either be bytes or
+ * a precompiled `WebAssembly.Module`.
+ *
+ * @param {{ module: SyncInitInput }} module - Passing `SyncInitInput` directly is deprecated.
+ *
+ * @returns {InitOutput}
+ */
 export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
 
+/**
+ * If `module_or_path` is {RequestInfo} or {URL}, makes a request and
+ * for everything else, calls `WebAssembly.instantiate` directly.
+ *
+ * @param {{ module_or_path: InitInput | Promise<InitInput> }} module_or_path - Passing `InitInput` directly is deprecated.
+ *
+ * @returns {Promise<InitOutput>}
+ */
 export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;

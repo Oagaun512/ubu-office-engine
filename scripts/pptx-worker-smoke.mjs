@@ -45,7 +45,7 @@ if (isMainThread) {
     check(info.slides === 2 && info.width > info.height, `2 wide slides, got ${JSON.stringify(info)}`);
     const slides = JSON.parse(deck.slides());
     check(slides[0].notes === true && deck.notes(0) === "Speaker notes", `notes, got ${JSON.stringify(slides)}`);
-    const pic = deck.render(0, 1);
+    const pic = deck.render(0, 1, false);
     const pixels = pic.pixels;
     const t3 = performance.now();
     check(pic.width === Math.round(info.width) && pixels.length === pic.width * pic.height * 4, `a slide at 1 px/pt, got ${pic.width}×${pic.height}`);
@@ -59,6 +59,21 @@ if (isMainThread) {
     const added = JSON.parse(deck.run("slide.new", JSON.stringify({ layout: "blank" })));
     check(added.changed && added.slides === 3 && deck.isDirty && deck.canUndo, `a new slide, got ${JSON.stringify(added)}`);
     check(JSON.parse(deck.run("edit.undo", "")).slides === 2, "undo");
+    // Editing through the engine's own pointer and key handling (Phase 5 P5).
+    const box = JSON.parse(deck.shapes(0)).find((s) => s.box[0] === 100 && s.box[1] === 100);
+    deck.run("edit.select", JSON.stringify({ ids: [box.id] }));
+    const sel = JSON.parse(deck.overlay()).shapes[0];
+    check(sel?.handles.length === 8, "a selected shape has 8 handles");
+    const [sx, sy] = sel.handles[4];
+    deck.pointer("down", sx, sy, 0, 3);
+    deck.pointer("drag", sx + 50, sy + 20, 0, 3);
+    deck.pointer("up", sx + 50, sy + 20, 0, 3);
+    // The engine snaps the gesture (grid and guides): the edge lands near the pointer.
+    check(Math.abs(JSON.parse(deck.overlay()).shapes[0].handles[4][0] - (sx + 50)) <= 10, "a handle drag resizes");
+    check(JSON.parse(deck.key("z", 4)).result.handled === true, "Ctrl+Z is the engine's undo");
+    check(JSON.parse(deck.overlay()).shapes[0].handles[4][0] === sx, "undone");
+    const edited = deck.render(0, 0.5, true);
+    edited.free();
     let refused = false;
     try {
       deck.run("no.such.command", "{}");

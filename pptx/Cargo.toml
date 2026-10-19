@@ -24,6 +24,7 @@ deckcraft-model = { path = "../upstream/deckcraft/crates/model" }
 deckcraft-render = { path = "../upstream/deckcraft/crates/render" }
 deckcraft-pptx = { path = "../upstream/deckcraft/crates/pptx" }
 deckcraft-fonts = { path = "../upstream/deckcraft/crates/fonts" }
+deckcraft-text = { path = "../upstream/deckcraft/crates/text" }
 kurbo = "0.13"
 wasm-bindgen = "=0.2.129"
 js-sys = "0.3"
