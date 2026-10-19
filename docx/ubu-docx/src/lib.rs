@@ -348,7 +348,7 @@ impl Document {
 
     /// Whether the document changed since it was opened (or last marked saved).
     pub fn is_dirty(&self) -> bool {
-        self.session.dirty()
+        self.session.dirty
     }
 
     pub fn can_undo(&self) -> bool {
