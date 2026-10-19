@@ -365,6 +365,35 @@ impl Document {
         &self.session.clipboard_text
     }
 
+    /// What a formatting toolbar shows at the selection (Ubu Office Phase 3, D6), as JSON:
+    /// wordcraft's `format.state` (font, size, bold, italic, underline, strike, color,
+    /// highlight, style, styleName, …; mixed values are null) plus the focus paragraph's
+    /// `align` (`left|center|right|justify|distribute`) and `list` (null, or `{"num", "level",
+    /// "format"}` with the level's OOXML number format, `bullet` for bullets).
+    pub fn format_state(&mut self) -> Result<String, DocxError> {
+        use wordcraft_doc::props::Align;
+        let mut state =
+            self.session.run("format.state", &serde_json::json!({})).map_err(|e| DocxError::new(ErrorCode::InvalidCommand, e.to_string()))?;
+        let doc = &self.session.doc;
+        let para = doc.para_at(&self.session.sel.focus).map(|p| doc.styles.resolve_para(&p.props));
+        let align = para.as_ref().map(|p| match p.align {
+            Align::Left => "left",
+            Align::Center => "center",
+            Align::Right => "right",
+            Align::Justify => "justify",
+            Align::Distribute => "distribute",
+        });
+        let list = para.as_ref().and_then(|p| p.numbering).filter(|n| n.num != 0).and_then(|n| {
+            let level = doc.numbering.level(n.num, n.level.min(8))?;
+            Some(serde_json::json!({"num": n.num, "level": n.level, "format": level.format.ooxml()}))
+        });
+        if let Some(obj) = state.as_object_mut() {
+            obj.insert("align".into(), serde_json::json!(align.unwrap_or("left")));
+            obj.insert("list".into(), list.unwrap_or(serde_json::Value::Null));
+        }
+        Ok(state.to_string())
+    }
+
     /// The page to search first for the caret: the one it was last laid out on.
     fn caret_page_hint(&self) -> usize {
         self.layout.page_of(&self.session.sel.focus).unwrap_or(0)

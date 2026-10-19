@@ -72,6 +72,9 @@ if (isMainThread) {
     check(doc.caret().length === 4, "a caret box");
     doc.run("caret.home", JSON.stringify({ extend: true }));
     check(doc.selectionRects().length >= 5, "a selection box");
+    // Phase 3 D6: the toolbar's state.
+    const fmt = JSON.parse(doc.formatState());
+    check(fmt.align === "left" && fmt.list === null && typeof fmt.bold === "boolean", `the format state, got ${JSON.stringify(fmt)}`);
     doc.run("edit.undo", "");
     check(doc.pageText(0).includes("Hello Ubu 1") && !doc.pageText(0).includes("Edited"), "undo");
     let refused = false;

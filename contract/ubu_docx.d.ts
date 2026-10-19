@@ -31,6 +31,12 @@ export class DocxDocument {
      */
     findText(page: number, query: string, case_sensitive: boolean, whole_words: boolean): Float32Array;
     /**
+     * The formatting at the selection, as JSON: font, size, bold, italic, underline, strike,
+     * color, highlight, style and styleName (mixed values are null), plus the paragraph's
+     * `align` and `list` (null or `{"num", "level", "format"}`).
+     */
+    formatState(): string;
+    /**
      * Open a document; `name` gives the format by extension. Throws a `DocxError` (`code`:
      * invalid, needs_password, wrong_password).
      */
