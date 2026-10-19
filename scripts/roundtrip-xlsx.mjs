@@ -1,0 +1,131 @@
+#!/usr/bin/env node
+// Round-trip and fidelity report over a spreadsheet corpus (Ubu Office Phase 4, S2).
+//
+//   node scripts/roundtrip-xlsx.mjs <roundtrip-binary> <corpus-dir> > ROUNDTRIP.md
+//
+// Runs ubu-sheets' `roundtrip` example once per workbook under <corpus-dir> (XLSX, XLSM, XLTX,
+// XLS, XLSB, ODS), each in its own process with a timeout, so a crash or hang is recorded as a
+// result instead of stopping the run. Report-only: the exit code is 0 whatever the results,
+// unless the runner itself is broken (no files, binary missing). The S2 gate (whether the
+// viewer opens to admins) is decided by a person reading this report.
+import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { extname, join, relative } from "node:path";
+
+const [bin, dir] = process.argv.slice(2);
+if (!bin || !dir || !existsSync(bin)) {
+  console.error("usage: roundtrip-xlsx.mjs <roundtrip-binary> <corpus-dir>");
+  process.exit(2);
+}
+const TIMEOUT_MS = 60_000;
+// Each file gets at most this much address space (KiB), so a workbook that expands without bound
+// is recorded as that file's crash instead of the runner killing the whole job (first CI run:
+// exit 143 after 51 s). Linux only (ulimit -v); elsewhere the file runs unbounded.
+const MEMORY_KIB = 3 * 1024 * 1024;
+const KINDS = [".xlsx", ".xlsm", ".xltx", ".xls", ".xlsb", ".ods"];
+
+function walk(d) {
+  return readdirSync(d).flatMap((name) => {
+    const p = join(d, name);
+    return statSync(p).isDirectory() ? walk(p) : KINDS.includes(extname(name).toLowerCase()) ? [p] : [];
+  });
+}
+const files = walk(dir).sort();
+if (!files.length) {
+  console.error(`no workbooks under ${dir}`);
+  process.exit(2);
+}
+
+const results = [];
+for (const file of files) {
+  const t0 = Date.now();
+  const bounded = process.platform === "linux";
+  const r = bounded
+    ? spawnSync("sh", ["-c", `ulimit -v ${MEMORY_KIB} && exec "$0" "$1"`, bin, file], { encoding: "utf8", timeout: TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 })
+    : spawnSync(bin, [file], { encoding: "utf8", timeout: TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
+  if (results.length % 50 === 0) console.error(`${results.length}/${files.length} ${relative(dir, file)}`);
+  const name = relative(dir, file).replaceAll("\\", "/");
+  const line = (r.stdout || "").trim().split("\n").pop();
+  let res;
+  if (r.error?.code === "ETIMEDOUT" || r.signal === "SIGTERM") res = { stage: "timeout", ok: false, error: `no result after ${TIMEOUT_MS / 1000} s` };
+  else if (r.status !== 0 || !line) {
+    const why = (r.stderr || "").trim().split("\n").filter(Boolean).slice(-3).join(" / ");
+    res = { stage: "crash", ok: false, error: `exit ${r.status ?? r.signal}${why ? `: ${why}` : ""}` };
+  } else {
+    try {
+      res = JSON.parse(line);
+    } catch {
+      res = { stage: "crash", ok: false, error: `unparseable output: ${line.slice(0, 200)}` };
+    }
+  }
+  if (r.status !== 0 && r.stderr && /memory allocation|out of memory/i.test(r.stderr)) res = { stage: "memory", ok: false, error: `more than ${MEMORY_KIB / 1024 / 1024} GB of memory` };
+  results.push({ name, kind: extname(name).toLowerCase().slice(1), ms: Date.now() - t0, ...res });
+}
+
+const n = results.length;
+const ok = results.filter((r) => r.ok);
+const crashes = results.filter((r) => r.stage === "crash" || r.stage === "timeout" || r.stage === "memory");
+const opened = results.filter((r) => !["read", "open", "crash", "timeout", "memory"].includes(r.stage));
+// Opened, and every sheet's layout, first screen, charts and contents read, and the PDF exported (or refused by D20).
+const viewed = opened.filter((r) => !["layout", "window", "chart", "contents", "pdf"].includes(r.stage));
+const sheetsChanged = ok.filter((r) => r.sheetsAfter !== r.sheets);
+const cellsChanged = ok.filter((r) => r.cellsChanged > 0);
+const lossy = results.filter((r) => Array.isArray(r.lost) && r.lost.length);
+const pdfRefused = ok.filter((r) => r.pdf === "refused");
+const lostKinds = new Map();
+for (const r of lossy) for (const k of r.lost) lostKinds.set(k, (lostKinds.get(k) ?? 0) + 1);
+const byStage = new Map();
+for (const r of results.filter((r) => !r.ok)) byStage.set(r.stage, (byStage.get(r.stage) ?? 0) + 1);
+const byKind = new Map();
+for (const r of results) {
+  const k = byKind.get(r.kind) ?? { n: 0, ok: 0 };
+  k.n++;
+  if (r.ok) k.ok++;
+  byKind.set(r.kind, k);
+}
+const pct = (k) => `${((100 * k) / n).toFixed(1)}%`;
+const esc = (s) => String(s ?? "").replaceAll("|", "\\|").replaceAll("\n", " ").slice(0, 300);
+const openTimes = opened.map((r) => r.openMs ?? 0).sort((a, b) => a - b);
+const pctile = (p) => (openTimes.length ? openTimes[Math.min(openTimes.length - 1, Math.floor((p / 100) * openTimes.length))] : 0);
+
+const out = [
+  "# Round-trip and fidelity report: ubu-sheets",
+  "",
+  "Each file: open → every sheet's layout, first screen of cells, charts and contents → export",
+  "PDF (or the D20 refusal) → save XLSX → reopen the copy → same sheets, every cell's text and",
+  "formula the same. One process per file,",
+  `${TIMEOUT_MS / 1000} s timeout, ${MEMORY_KIB / 1024 / 1024} GB of memory, \`panic = abort\` as in the browser. Generated by \`scripts/roundtrip-xlsx.mjs\`.`,
+  "",
+  `- Files: **${n}** (${[...byKind].map(([k, v]) => `${k} ${v.ok}/${v.n}`).join(", ")} round-tripped)`,
+  `- Opened and viewed (every sheet's layout, first screen, charts, contents; PDF): **${viewed.length}** (${pct(viewed.length)})`,
+  `- Full round trip (saved copy reopens): **${ok.length}** (${pct(ok.length)})`,
+  `- Crashes, hangs or memory blow-ups: **${crashes.length}** (${pct(crashes.length)})`,
+  `- Failed: **${n - ok.length}** (${pct(n - ok.length)})`,
+  ...[...byStage].sort((a, b) => b[1] - a[1]).map(([stage, k]) => `  - at \`${stage}\`: ${k}`),
+  `- Saved copy with a different number of sheets: **${sheetsChanged.length}**; with cells whose text or formula changed: **${cellsChanged.length}**`,
+  `- Saved copy that lost content (what the S7 check must warn about): **${lossy.length}**`,
+  ...[...lostKinds].sort((a, b) => b[1] - a[1]).map(([kind, k]) => `  - ${kind}: ${k}`),
+  `- PDF refused (text outside Windows-1252, D20): **${pdfRefused.length}**`,
+  `- Open time (calculation included), opened files: median ${pctile(50)} ms, 95th percentile ${pctile(95)} ms, slowest ${openTimes.at(-1) ?? 0} ms`,
+  "",
+  "Corpus files are often unusual on purpose (many come from bug reports), so a failure here is a",
+  "finding to triage, not necessarily a bug. Volatile functions (NOW, RAND, …) recalculate on",
+  "open, so a changed value can be expected.",
+  "",
+  "## Failures",
+  "",
+  "| File | Stage | Error |",
+  "|---|---|---|",
+  ...results.filter((r) => !r.ok).map((r) => `| \`${esc(r.name)}\` | ${r.stage} | ${esc(r.error)} |`),
+  "",
+  "## Saved copies that changed",
+  "",
+  "| File | Sheets | Sheets after | Cells changed | First change | Lost |",
+  "|---|---|---|---|---|---|",
+  ...results
+    .filter((r) => r.ok && (r.sheetsAfter !== r.sheets || r.cellsChanged > 0 || r.lost?.length))
+    .map((r) => `| \`${esc(r.name)}\` | ${r.sheets} | ${r.sheetsAfter} | ${r.cellsChanged} | ${esc(r.firstChange)} | ${esc((r.lost ?? []).join(", "))} |`),
+  "",
+].join("\n");
+process.stdout.write(out);
+console.error(`xlsx round trip: ${ok.length}/${n} ok, ${crashes.length} crashes or hangs, ${cellsChanged.length} with changed cells, ${lossy.length} lossy saves`);
