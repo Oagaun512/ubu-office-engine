@@ -62,13 +62,15 @@ if (isMainThread) {
     // Editing through the engine's own pointer and key handling (Phase 5 P5).
     const box = JSON.parse(deck.shapes(0)).find((s) => s.box[0] === 100 && s.box[1] === 100);
     deck.run("edit.select", JSON.stringify({ ids: [box.id] }));
-    check(JSON.parse(deck.overlay()).shapes[0]?.handles.length === 8, "a selected shape has 8 handles");
-    deck.pointer("down", 600, 180, 0, 3);
-    deck.pointer("drag", 650, 200, 0, 3);
-    deck.pointer("up", 650, 200, 0, 3);
-    check(JSON.parse(deck.overlay()).shapes[0].handles[4][0] === 650, "a handle drag resizes");
+    const sel = JSON.parse(deck.overlay()).shapes[0];
+    check(sel?.handles.length === 8, "a selected shape has 8 handles");
+    const [sx, sy] = sel.handles[4];
+    deck.pointer("down", sx, sy, 0, 3);
+    deck.pointer("drag", sx + 50, sy + 20, 0, 3);
+    deck.pointer("up", sx + 50, sy + 20, 0, 3);
+    check(JSON.parse(deck.overlay()).shapes[0].handles[4][0] === sx + 50, "a handle drag resizes");
     check(JSON.parse(deck.key("z", 4)).result.handled === true, "Ctrl+Z is the engine's undo");
-    check(JSON.parse(deck.overlay()).shapes[0].handles[4][0] === 600, "undone");
+    check(JSON.parse(deck.overlay()).shapes[0].handles[4][0] === sx, "undone");
     const edited = deck.render(0, 0.5, true);
     edited.free();
     let refused = false;

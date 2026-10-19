@@ -166,20 +166,24 @@ fn a_selected_shape_has_its_box_and_handles_and_a_handle_drag_resizes_it_as_one_
     assert_eq!(sel["id"], id);
     assert_eq!(sel["corners"][0], json!([100.0, 100.0]));
     assert_eq!(sel["handles"].as_array().unwrap().len(), 8);
-    assert_eq!(sel["handles"][4], json!([600.0, 180.0]), "the SE handle");
+    // The SE handle: the box's right edge, and its bottom (the text box fits its text's height).
+    let se = sel["handles"][4].clone();
+    let (sx, sy) = (se[0].as_f64().unwrap(), se[1].as_f64().unwrap());
+    assert_eq!(sx, 600.0);
+    assert!(sy > 100.0, "{o}");
     assert!(o["editing"].is_null() && o["caret"].is_null());
     // Drag the SE handle 50 points right and 20 down.
-    deck.pointer("down", 600.0, 180.0, 0, 3.0).unwrap();
-    deck.pointer("drag", 625.0, 190.0, 0, 3.0).unwrap();
-    deck.pointer("drag", 650.0, 200.0, 0, 3.0).unwrap();
-    let up = deck.pointer("up", 650.0, 200.0, 0, 3.0).unwrap();
+    deck.pointer("down", sx, sy, 0, 3.0).unwrap();
+    deck.pointer("drag", sx + 25.0, sy + 10.0, 0, 3.0).unwrap();
+    deck.pointer("drag", sx + 50.0, sy + 20.0, 0, 3.0).unwrap();
+    let up = deck.pointer("up", sx + 50.0, sy + 20.0, 0, 3.0).unwrap();
     assert!(up.changed || deck.can_undo(), "{up:?}");
     let after = json(&deck.overlay());
-    assert_eq!(after["shapes"][0]["handles"][4], json!([650.0, 200.0]), "the box follows the handle: {after}");
+    assert_eq!(after["shapes"][0]["handles"][4][0], json!(650.0), "the box follows the handle: {after}");
     // Ctrl+Z undoes the whole gesture.
     let undo = deck.key("z", 4).unwrap();
     assert!(json(&undo.result)["handled"].as_bool().unwrap(), "{undo:?}");
-    assert_eq!(json(&deck.overlay())["shapes"][0]["handles"][4], json!([600.0, 180.0]));
+    assert_eq!(json(&deck.overlay())["shapes"][0]["handles"][4], se);
 }
 
 #[test]
@@ -214,8 +218,9 @@ fn typing_edits_the_text_with_a_caret_and_escape_leaves_it() {
 fn a_click_on_text_selects_or_edits_it_and_unknown_events_are_refused() {
     let mut deck = Deck::open(&pptx(&[text_box("Click me")], None), "t.pptx").unwrap();
     let id = box_id(&deck);
-    deck.pointer("down", 150.0, 140.0, 0, 3.0).unwrap();
-    deck.pointer("up", 150.0, 140.0, 0, 3.0).unwrap();
+    // On the text box's first line (it fits its text: 100 to about 129 points down).
+    deck.pointer("down", 150.0, 112.0, 0, 3.0).unwrap();
+    deck.pointer("up", 150.0, 112.0, 0, 3.0).unwrap();
     let o = json(&deck.overlay());
     assert!(o["editing"] == id || o["shapes"][0]["id"] == id, "the click lands on the box: {o}");
     assert_eq!(deck.pointer("hover", 0.0, 0.0, 0, 3.0).unwrap_err().code, ErrorCode::InvalidCommand);

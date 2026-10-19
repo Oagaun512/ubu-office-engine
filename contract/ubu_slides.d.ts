@@ -17,19 +17,6 @@ export class SlideDeck {
      */
     static addFont(bytes: Uint8Array): number;
     /**
-     * The presentation as PDF.
-     */
-    exportPdf(): Uint8Array;
-    /**
-     * The presentation, as JSON: `{"width", "height"}` in points, `"slides"`, `"fonts"`,
-     * `"missingFonts"`.
-     */
-    info(): string;
-    /**
-     * A slide's speaker notes.
-     */
-    notes(slide: number): string;
-    /**
      * The input method's composition, accepted.
      */
     commitText(text: string): string;
@@ -39,10 +26,23 @@ export class SlideDeck {
      */
     composeText(text: string, active_start?: number | null, active_end?: number | null): string;
     /**
+     * The presentation as PDF.
+     */
+    exportPdf(): Uint8Array;
+    /**
+     * The presentation, as JSON: `{"width", "height"}` in points, `"slides"`, `"fonts"`,
+     * `"missingFonts"`.
+     */
+    info(): string;
+    /**
      * A key press (`Enter`, `ArrowLeft`, `Delete`, …, or a character with Ctrl). `result.handled`
      * says whether the engine used it. Returns the same JSON as `run`.
      */
     key(key: string, mods: number): string;
+    /**
+     * A slide's speaker notes.
+     */
+    notes(slide: number): string;
     /**
      * Open a presentation (`.pptx`, `.ppsx`, `.potx`); `name` is for messages. Throws a
      * `SlidesError` (`code`: invalid, unsupported).
@@ -134,6 +134,22 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;
 
+/**
+ * Instantiates the given `module`, which can either be bytes or
+ * a precompiled `WebAssembly.Module`.
+ *
+ * @param {{ module: SyncInitInput }} module - Passing `SyncInitInput` directly is deprecated.
+ *
+ * @returns {InitOutput}
+ */
 export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
 
+/**
+ * If `module_or_path` is {RequestInfo} or {URL}, makes a request and
+ * for everything else, calls `WebAssembly.instantiate` directly.
+ *
+ * @param {{ module_or_path: InitInput | Promise<InitInput> }} module_or_path - Passing `InitInput` directly is deprecated.
+ *
+ * @returns {Promise<InitOutput>}
+ */
 export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;
