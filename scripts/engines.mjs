@@ -78,15 +78,12 @@ export const ENGINES = {
         covers: inside("upstream/craft-libs"),
       },
     ],
-    // The last-resort face compiled in through epaint_default_fonts (Ubuntu Light), and the OFL
-    // its other fonts are under.
-    assets: [
-      ["licenses/ubuntu-font-licence-1.0.txt", "ubuntu-font-licence-1.0.txt"],
-      ["licenses/epaint-default-fonts-ofl-1.1.txt", "epaint-default-fonts-ofl-1.1.txt"],
-    ],
+    // The last-resort face's licences (Ubuntu Light, through epaint_default_fonts) ship with that
+    // crate's texts in licenses/epaint_default_fonts/.
+    assets: [],
     note:
       "The deckcraft-* crates are covered by deckcraft/, and craft-pdf and krilla by craft-libs/, next to this file. " +
-      "The last-resort font compiled into the engine (Ubuntu Light) is under the Ubuntu Font Licence, in assets/.",
+      "The last-resort font compiled into the engine (Ubuntu Light) is under the Ubuntu Font Licence, listed with epaint_default_fonts.",
   },
 };
 

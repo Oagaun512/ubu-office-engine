@@ -50,8 +50,8 @@ Required notices for material compiled into the presentation engine build (pptx/
 
   Ubuntu Light (the last-resort text face, via the epaint_default_fonts crate): Copyright 2010-2011
   Canonical Ltd., by Dalton Maag Ltd. Ubuntu Font Licence 1.0
-  (licenses/ubuntu-font-licence-1.0.txt). The crate's other fonts are under the SIL Open Font
-  Licence 1.1 (licenses/epaint-default-fonts-ofl-1.1.txt).
+  (licenses/epaint_default_fonts/LICENSE-UFL-1.0.txt). The crate's other fonts are under the SIL
+  Open Font Licence 1.1 (licenses/epaint_default_fonts/LICENSE-OFL-1.1.txt).
 
 The full per-crate licence list of every build is generated into SBOM.md by CI.
 

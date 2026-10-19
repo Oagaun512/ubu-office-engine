@@ -124,6 +124,12 @@ pub struct Deck {
     warnings: Vec<String>,
 }
 
+impl fmt::Debug for Deck {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Deck").field("slides", &self.doc().slides.len()).field("warnings", &self.warnings).finish()
+    }
+}
+
 impl Deck {
     /// Open a presentation. `name` is used in messages only: the bytes decide the format.
     pub fn open(bytes: &[u8], name: &str) -> Result<Deck> {

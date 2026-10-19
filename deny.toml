@@ -26,7 +26,7 @@ allow = [
 
 # Font licences for one crate only: the slides engine compiles in Ubuntu Light, its last-resort
 # face, through epaint_default_fonts (whose other fonts are under OFL-1.1). Both are font licences
-# that allow bundling with software; their texts ship with the build (licenses/, NOTICE).
+# that allow bundling with software; their texts ship with the build (licenses/epaint_default_fonts/, NOTICE).
 [[licenses.exceptions]]
 crate = "epaint_default_fonts"
 allow = ["OFL-1.1", "Ubuntu-font-1.0"]
