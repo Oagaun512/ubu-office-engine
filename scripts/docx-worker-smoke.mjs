@@ -64,6 +64,23 @@ if (isMainThread) {
     check(docx[0] === 0x50 && docx[1] === 0x4b, "DOCX save (a zip)");
     check(glue.addFont(new Uint8Array([1, 2, 3])) === 0, "garbage is not a font");
     doc.relayout();
+    // Phase 3 D5: an edit in the worker, the caret and the selection, undo.
+    doc.run("caret.docStart", "{}");
+    const typed = JSON.parse(doc.run("text.insert", JSON.stringify({ text: "Edited " })));
+    check(typed.changed === true && typed.pageCount === 2 && doc.isDirty && doc.canUndo, `an edit, got ${JSON.stringify(typed)}`);
+    check(doc.pageText(0).includes("Edited Hello Ubu 1"), `the edit is laid out, got ${JSON.stringify(doc.pageText(0))}`);
+    check(doc.caret().length === 4, "a caret box");
+    doc.run("caret.home", JSON.stringify({ extend: true }));
+    check(doc.selectionRects().length >= 5, "a selection box");
+    doc.run("edit.undo", "");
+    check(doc.pageText(0).includes("Hello Ubu 1") && !doc.pageText(0).includes("Edited"), "undo");
+    let refused = false;
+    try {
+      doc.run("no.such.command", "{}");
+    } catch (e) {
+      refused = e.name === "DocxError" && e.code === "invalid_command";
+    }
+    check(refused, "an unknown command is a DocxError, not a trap");
     const version = glue.engineVersion();
     page.free();
     doc.free();

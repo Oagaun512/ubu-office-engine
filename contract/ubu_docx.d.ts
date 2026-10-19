@@ -13,6 +13,15 @@ export class DocxDocument {
     free(): void;
     [Symbol.dispose](): void;
     /**
+     * The caret as 4 numbers: page, x, top, height (page points); empty when it is not on a
+     * laid-out line.
+     */
+    caret(): Float32Array;
+    /**
+     * The text the last `edit.copy` or `edit.cut` put on the clipboard.
+     */
+    clipboardText(): string;
+    /**
      * The document as PDF.
      */
     exportPdf(): Uint8Array;
@@ -47,9 +56,22 @@ export class DocxDocument {
      */
     renderPage(page: number, scale: number): RenderedPage;
     /**
+     * Run an editing command (`text.insert`, `caret.set`, `edit.undo`, …) with its JSON
+     * parameters. Returns JSON: `{"result": <the command's result>, "changed": bool, "rev": n,
+     * "pageCount": n}`. Throws a `DocxError` (`code`: invalid_command).
+     */
+    run(command: string, params_json: string): string;
+    /**
      * The document written back as DOCX.
      */
     saveDocx(): Uint8Array;
+    /**
+     * The selection as 5 numbers per box: page, x0, y0, x1, y1 (empty for a plain caret).
+     */
+    selectionRects(): Float32Array;
+    readonly canRedo: boolean;
+    readonly canUndo: boolean;
+    readonly isDirty: boolean;
     readonly pageCount: number;
 }
 
