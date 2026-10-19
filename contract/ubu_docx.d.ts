@@ -17,6 +17,11 @@ export class DocxDocument {
      */
     exportPdf(): Uint8Array;
     /**
+     * Find `query` on a page. Returns 5 numbers per box: match index, x0, y0, x1, y1 (page
+     * points, y down).
+     */
+    findText(page: number, query: string, case_sensitive: boolean, whole_words: boolean): Float32Array;
+    /**
      * Open a document; `name` gives the format by extension. Throws a `DocxError` (`code`:
      * invalid, needs_password, wrong_password).
      */
@@ -25,6 +30,10 @@ export class DocxDocument {
      * Page size in points.
      */
     pageSize(page: number): PageSize;
+    /**
+     * The page's text as lines with boxes, for a selectable text layer over the rendered page.
+     */
+    pageTextLayer(page: number): TextLayer;
     /**
      * The page's text in drawing order, lines separated by `\n`.
      */
@@ -68,6 +77,25 @@ export class RenderedPage {
     rgba(): Uint8ClampedArray;
     readonly height: number;
     readonly width: number;
+}
+
+/**
+ * A page's text layer: `lineCount` lines, each with its text and 5 numbers in `boxes()`:
+ * x0, y0, x1, y1 (page points, origin top-left, y down) and the writing angle in radians.
+ */
+export class TextLayer {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * 5 numbers per line: x0, y0, x1, y1, angle.
+     */
+    boxes(): Float32Array;
+    /**
+     * All lines' text, in order.
+     */
+    lines(): string[];
+    readonly lineCount: number;
 }
 
 /**

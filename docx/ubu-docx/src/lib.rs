@@ -15,9 +15,12 @@ mod wasm;
 use std::fmt;
 use std::sync::Arc;
 
+use wordcraft_doc::StoryRef;
+use wordcraft_doc::para::OBJ;
 use wordcraft_engine::Session;
 use wordcraft_engine::layout::DocLayout;
 use wordcraft_engine::layout::display::{DisplayOptions, Draw, page_display};
+use wordcraft_engine::layout::hit::page_lines;
 use wordcraft_engine::render::{RenderOptions, render_page};
 
 /// Pixel budget for one raster, as in the PDF engine: the browser's wasm heap is 32-bit and
@@ -88,6 +91,26 @@ pub struct Raster {
     pub height: u32,
     pub rgba: Vec<u8>,
 }
+
+/// One line of a page's text layer. Coordinates are page points, origin top-left, y down: the
+/// same space as [`PageSize`] (and the PDF engine's text layer), so a viewer multiplies by its zoom.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextLine {
+    pub text: String,
+    /// `[x0, y0, x1, y1]`: from the line's first character to its last, top to bottom of the line.
+    pub rect: [f32; 4],
+    /// Writing direction in radians (always 0: turned lines are not in the text layer).
+    pub angle: f32,
+}
+
+/// One search match: a box per line it covers (here always one: matches stay within a line).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextMatch {
+    pub rects: Vec<[f32; 4]>,
+}
+
+/// At most this many matches are returned per page and query (as in the PDF engine).
+pub const MAX_MATCHES_PER_PAGE: usize = 1000;
 
 /// An open document, laid out for reading.
 pub struct Document {
@@ -166,6 +189,88 @@ impl Document {
         Ok(out)
     }
 
+    /// The page's text as lines with boxes, in layout order (body, then header and footer):
+    /// what a viewer lays over the rendered page so text can be selected and copied. Built from
+    /// wordcraft's own line layout (`layout::hit::page_lines`), so each box is where the line's
+    /// characters really are. Inline objects (pictures, fields' codes) are left out of the text.
+    pub fn page_text_layer(&self, index: usize) -> Result<Vec<TextLine>, DocxError> {
+        let lines = self.page_lines(index)?;
+        Ok(lines
+            .into_iter()
+            .filter_map(|l| {
+                let text: String = l.text.chars().filter(|c| *c != OBJ).collect();
+                if text.trim().is_empty() {
+                    return None;
+                }
+                Some(TextLine { text, rect: l.rect, angle: 0.0 })
+            })
+            .collect())
+    }
+
+    /// Find `query` on page `index` with Word's options (match case, whole words only). Matches
+    /// stay within a line; each has the box of the characters it covers. At most
+    /// [`MAX_MATCHES_PER_PAGE`]; an empty query finds nothing.
+    pub fn find_text(&self, index: usize, query: &str, case_sensitive: bool, whole_words: bool) -> Result<Vec<TextMatch>, DocxError> {
+        let lines = self.page_lines(index)?;
+        let needle: Vec<char> = query.chars().collect();
+        if query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let same = |a: char, b: char| if case_sensitive { a == b } else { a == b || a.to_lowercase().eq(b.to_lowercase()) };
+        let word = |c: Option<&(usize, char)>| c.is_some_and(|(_, c)| c.is_alphanumeric() || *c == '_');
+        let mut out = Vec::new();
+        for line in &lines {
+            let chars: Vec<(usize, char)> = line.text.char_indices().collect();
+            let mut i = 0;
+            while i + needle.len() <= chars.len() && out.len() < MAX_MATCHES_PER_PAGE {
+                let hit = needle.iter().enumerate().all(|(k, q)| same(chars[i + k].1, *q));
+                let bounded = !whole_words || (!word(i.checked_sub(1).and_then(|p| chars.get(p))) && !word(chars.get(i + needle.len())));
+                if hit && bounded {
+                    let start = chars[i].0;
+                    let end = chars.get(i + needle.len()).map_or(line.text.len(), |c| c.0);
+                    if let Some(rect) = line.span(start, end) {
+                        out.push(TextMatch { rects: vec![rect] });
+                    }
+                    i += needle.len();
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every upright line on the page with its paragraph text and geometry.
+    fn page_lines(&self, index: usize) -> Result<Vec<PageLine>, DocxError> {
+        let page = self.layout.pages.get(index).ok_or_else(|| out_of_range(index, self.page_count()))?;
+        let mut stories = vec![StoryRef::Body];
+        stories.extend(page.header_story.map(StoryRef::Part));
+        stories.extend(page.footer_story.map(StoryRef::Part));
+        let mut out = Vec::new();
+        for story in stories {
+            for hit in page_lines(page, story) {
+                let Some(para) = self.session.doc.para(hit.story, hit.path) else { continue };
+                let Some(line) = hit.para.lines.get(hit.li) else { continue };
+                let Some(text) = para.text.get(line.start..line.stop) else { continue };
+                // Each cluster's byte range in the line and its left/right x, in page points.
+                let clusters: Vec<(usize, usize, f32, f32)> = (line.c0..line.c1)
+                    .filter_map(|k| {
+                        let c = hit.para.clusters.get(k)?;
+                        let (l, r) = (line.cl_left(k)?, line.cl_right(k)?);
+                        Some((c.start.saturating_sub(line.start), c.end.saturating_sub(line.start), hit.x + l.min(r), hit.x + l.max(r)))
+                    })
+                    .collect();
+                let x0 = clusters.iter().map(|c| c.2).fold(f32::INFINITY, f32::min);
+                let x1 = clusters.iter().map(|c| c.3).fold(f32::NEG_INFINITY, f32::max);
+                if !(x0.is_finite() && x1.is_finite()) {
+                    continue;
+                }
+                out.push(PageLine { text: text.to_owned(), rect: [x0, hit.top, x1, hit.bottom], clusters });
+            }
+        }
+        Ok(out)
+    }
+
     /// The document as PDF (the same print layout, without markup).
     pub fn export_pdf(&self) -> Result<Vec<u8>, DocxError> {
         wordcraft_pdf::export(&self.session.doc, &wordcraft_pdf::PdfOptions::default())
@@ -191,6 +296,27 @@ pub fn add_font(bytes: Vec<u8>) -> usize {
     match wordcraft_fonts::decode_font_file(&bytes) {
         Ok(data) => wordcraft_fonts::FontDb::global().add_font(data),
         Err(_) => 0,
+    }
+}
+
+/// A laid-out line: its paragraph text (with object placeholders), its box, and each cluster's
+/// byte range within the line text and x extent on the page.
+struct PageLine {
+    text: String,
+    rect: [f32; 4],
+    clusters: Vec<(usize, usize, f32, f32)>,
+}
+
+impl PageLine {
+    /// The box of the characters in byte range `start..end` of the line text.
+    fn span(&self, start: usize, end: usize) -> Option<[f32; 4]> {
+        let covered = self.clusters.iter().filter(|c| c.0 < end && c.1 > start);
+        let (mut x0, mut x1) = (f32::INFINITY, f32::NEG_INFINITY);
+        for c in covered {
+            x0 = x0.min(c.2);
+            x1 = x1.max(c.3);
+        }
+        (x0.is_finite() && x1.is_finite()).then_some([x0, self.rect[1], x1, self.rect[3]])
     }
 }
 

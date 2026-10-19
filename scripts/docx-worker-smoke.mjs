@@ -52,6 +52,12 @@ if (isMainThread) {
     check(dark > 50, `ink on page 1 (${dark} dark pixels)`);
     const t3 = performance.now();
     check(doc.pageText(1).includes("Hello Ubu 2"), `page 2's text, got ${JSON.stringify(doc.pageText(1))}`);
+    // Phase 3 D3: the text layer (lines and 5 numbers per line) and find (5 numbers per box).
+    const layer = doc.pageTextLayer(0);
+    check(layer.lineCount === 1 && layer.lines()[0] === "Hello Ubu 1" && layer.boxes().length === 5, `page 1's text layer, got ${JSON.stringify(layer.lines())}`);
+    layer.free();
+    const found = doc.findText(0, "ubu", false, true);
+    check(found.length === 5 && found[0] === 0 && found[3] > found[1], `one whole-word match with a box, got ${Array.from(found)}`);
     const pdf = doc.exportPdf();
     check(String.fromCharCode(...pdf.subarray(0, 5)) === "%PDF-", "PDF export");
     const docx = doc.saveDocx();
