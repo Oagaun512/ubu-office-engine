@@ -16,6 +16,9 @@ publish = false
 [workspace.dependencies]
 pdfcraft-render = { path = "upstream/pdfcraft/crates/render" }
 pdfcraft-cos = { path = "upstream/pdfcraft/crates/cos" }
+# E1 (PDF editing): page operations and comments, over the same object layer.
+pdfcraft-organize = { path = "upstream/pdfcraft/crates/organize" }
+pdfcraft-annot = { path = "upstream/pdfcraft/crates/annot" }
 wasm-bindgen = "=0.2.129"
 js-sys = "0.3"
 
