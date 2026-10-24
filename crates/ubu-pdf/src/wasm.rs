@@ -7,7 +7,7 @@
 use wasm_bindgen::Clamped;
 use wasm_bindgen::prelude::*;
 
-use crate::{Allow, Document, ErrorCode, PdfError};
+use crate::{Allow, Document, Edit, ErrorCode, PdfError};
 
 /// A thrown `Error` with `name = "PdfError"` and a machine-readable `code` (see `ErrorCode`).
 fn js_error(e: PdfError) -> JsValue {
@@ -126,6 +126,96 @@ impl PdfDocument {
     #[wasm_bindgen(js_name = saveUnprotected)]
     pub fn save_unprotected(&self) -> Result<Vec<u8>, JsValue> {
         self.inner.save_unprotected().map_err(js_error)
+    }
+
+    /// Start editing (page operations and comments). `date` is a PDF date (`D:YYYYMMDDHHmmSSZ`)
+    /// for new comments and `/ModDate`; `id_prefix` starts each new comment's unique name. Throws
+    /// `owner_password_required` when the open password may not change the file, `save_failed`
+    /// when its structure cannot be read.
+    pub fn edit(&self, date: &str, id_prefix: &str) -> Result<PdfEdit, JsValue> {
+        self.inner.edit(Some(date), id_prefix).map(|inner| PdfEdit { inner }).map_err(js_error)
+    }
+}
+
+/// Edits to an open document: page operations and comments. Coordinates are page points in view
+/// space (origin top-left, y down, after rotation), as the text layer reports them. Comments use
+/// the pages as opened: after a page operation in the same edit they throw `edit_failed`.
+/// `save()` returns the original bytes plus one incremental update. Call `free()` when done.
+#[wasm_bindgen]
+pub struct PdfEdit {
+    inner: Edit,
+}
+
+#[wasm_bindgen]
+impl PdfEdit {
+    /// Pages in the document as edited so far.
+    #[wasm_bindgen(getter, js_name = pageCount)]
+    pub fn page_count(&self) -> u32 {
+        self.inner.page_count() as u32
+    }
+
+    /// Rotate pages by a multiple of 90 degrees, clockwise.
+    #[wasm_bindgen(js_name = rotatePages)]
+    pub fn rotate_pages(&mut self, pages: &[u32], degrees: i32) -> Result<(), JsValue> {
+        self.inner.rotate_pages(pages, i64::from(degrees)).map_err(js_error)
+    }
+
+    /// Delete pages (never every page).
+    #[wasm_bindgen(js_name = deletePages)]
+    pub fn delete_pages(&mut self, pages: &[u32]) -> Result<(), JsValue> {
+        self.inner.delete_pages(pages).map_err(js_error)
+    }
+
+    /// Move pages, in their relative order, so they start at position `to`.
+    #[wasm_bindgen(js_name = movePages)]
+    pub fn move_pages(&mut self, pages: &[u32], to: u32) -> Result<(), JsValue> {
+        self.inner.move_pages(pages, to).map_err(js_error)
+    }
+
+    /// Insert pages of another PDF at `at` (`pages` empty: all of them); its bookmarks go under
+    /// one titled `name`. Returns how many pages were inserted.
+    #[wasm_bindgen(js_name = insertPages)]
+    pub fn insert_pages(&mut self, bytes: &[u8], password: Option<String>, name: &str, pages: &[u32], at: u32) -> Result<u32, JsValue> {
+        self.inner.insert_pages(bytes.to_vec(), password.as_deref(), name, pages, at).map(|n| n as u32).map_err(js_error)
+    }
+
+    /// Highlight, underline, strikeout or squiggly over rectangles (4 numbers each).
+    #[allow(clippy::too_many_arguments)]
+    pub fn markup(&mut self, page: u32, kind: &str, rects: &[f32], color: &[f32], opacity: f64, contents: &str, author: &str) -> Result<(), JsValue> {
+        self.inner.markup(page, kind, rects, color, opacity, contents, author).map_err(js_error)
+    }
+
+    /// A sticky note whose icon's top-left corner is at (`x`, `y`).
+    pub fn note(&mut self, page: u32, x: f32, y: f32, contents: &str, author: &str, color: &[f32]) -> Result<(), JsValue> {
+        self.inner.note(page, x, y, contents, author, color).map_err(js_error)
+    }
+
+    /// A text box showing `contents` in `rect` (x0, y0, x1, y1).
+    #[wasm_bindgen(js_name = textBox)]
+    pub fn text_box(&mut self, page: u32, rect: &[f32], font_size: f64, contents: &str, author: &str, color: &[f32]) -> Result<(), JsValue> {
+        self.inner.text_box(page, rect, font_size, contents, author, color).map_err(js_error)
+    }
+
+    /// Freehand ink: x, y pairs in `points`, the number of points of each stroke in `counts`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ink(&mut self, page: u32, points: &[f32], counts: &[u32], width: f64, color: &[f32], opacity: f64, author: &str) -> Result<(), JsValue> {
+        self.inner.ink(page, points, counts, width, color, opacity, author).map_err(js_error)
+    }
+
+    /// Set (or clear, with "") a document-information entry such as `Producer`.
+    #[wasm_bindgen(js_name = setInfo)]
+    pub fn set_info(&mut self, key: &str, value: &str) -> Result<(), JsValue> {
+        self.inner.set_info(key, value).map_err(js_error)
+    }
+
+    /// The original bytes followed by one incremental update with every edit.
+    pub fn save(&self) -> Result<Vec<u8>, JsValue> {
+        self.inner.save().map_err(js_error)
+    }
+
+    /// A new PDF of these pages of the document as edited so far.
+    pub fn extract(&self, pages: &[u32]) -> Result<Vec<u8>, JsValue> {
+        self.inner.extract(pages).map_err(js_error)
     }
 }
 

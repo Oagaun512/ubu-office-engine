@@ -24,6 +24,13 @@ export class PdfDocument {
     free(): void;
     [Symbol.dispose](): void;
     /**
+     * Start editing (page operations and comments). `date` is a PDF date (`D:YYYYMMDDHHmmSSZ`)
+     * for new comments and `/ModDate`; `id_prefix` starts each new comment's unique name. Throws
+     * `owner_password_required` when the open password may not change the file, `save_failed`
+     * when its structure cannot be read.
+     */
+    edit(date: string, id_prefix: string): PdfEdit;
+    /**
      * Find `query` on a page. Returns 5 numbers per box: match index, x0, y0, x1, y1 (page
      * points, y down). A match that wraps onto the next line has one box per line.
      */
@@ -67,6 +74,67 @@ export class PdfDocument {
      * The whole document written back as a new PDF (full rewrite).
      */
     save(): Uint8Array;
+    readonly pageCount: number;
+}
+
+/**
+ * Edits to an open document: page operations and comments. Coordinates are page points in view
+ * space (origin top-left, y down, after rotation), as the text layer reports them. Comments use
+ * the pages as opened: after a page operation in the same edit they throw `edit_failed`.
+ * `save()` returns the original bytes plus one incremental update. Call `free()` when done.
+ */
+export class PdfEdit {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Delete pages (never every page).
+     */
+    deletePages(pages: Uint32Array): void;
+    /**
+     * A new PDF of these pages of the document as edited so far.
+     */
+    extract(pages: Uint32Array): Uint8Array;
+    /**
+     * Freehand ink: x, y pairs in `points`, the number of points of each stroke in `counts`.
+     */
+    ink(page: number, points: Float32Array, counts: Uint32Array, width: number, color: Float32Array, opacity: number, author: string): void;
+    /**
+     * Insert pages of another PDF at `at` (`pages` empty: all of them); its bookmarks go under
+     * one titled `name`. Returns how many pages were inserted.
+     */
+    insertPages(bytes: Uint8Array, password: string | null | undefined, name: string, pages: Uint32Array, at: number): number;
+    /**
+     * Highlight, underline, strikeout or squiggly over rectangles (4 numbers each).
+     */
+    markup(page: number, kind: string, rects: Float32Array, color: Float32Array, opacity: number, contents: string, author: string): void;
+    /**
+     * Move pages, in their relative order, so they start at position `to`.
+     */
+    movePages(pages: Uint32Array, to: number): void;
+    /**
+     * A sticky note whose icon's top-left corner is at (`x`, `y`).
+     */
+    note(page: number, x: number, y: number, contents: string, author: string, color: Float32Array): void;
+    /**
+     * Rotate pages by a multiple of 90 degrees, clockwise.
+     */
+    rotatePages(pages: Uint32Array, degrees: number): void;
+    /**
+     * The original bytes followed by one incremental update with every edit.
+     */
+    save(): Uint8Array;
+    /**
+     * Set (or clear, with "") a document-information entry such as `Producer`.
+     */
+    setInfo(key: string, value: string): void;
+    /**
+     * A text box showing `contents` in `rect` (x0, y0, x1, y1).
+     */
+    textBox(page: number, rect: Float32Array, font_size: number, contents: string, author: string, color: Float32Array): void;
+    /**
+     * Pages in the document as edited so far.
+     */
     readonly pageCount: number;
 }
 

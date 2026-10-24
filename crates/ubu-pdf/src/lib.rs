@@ -1,14 +1,18 @@
 //! Headless PDF engine for Ubu Office.
 //!
-//! [`Document`] is the whole API: open, page sizes, render, text, save, and password protection. It is plain Rust so it
+//! [`Document`] is the whole API: open, page sizes, render, text, save, password protection, and
+//! editing ([`Edit`]: page operations and comments, saved incrementally). It is plain Rust so it
 //! runs in native tests and the round-trip corpus run; the browser binding over it (`wasm`)
 //! adds nothing but type conversion.
 //!
 //! Rendering and text come from the upstream renderer (`pdfcraft-render`); saving comes from the
 //! upstream object layer (`pdfcraft-cos`). Neither is modified here.
 
+mod edit;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
+
+pub use edit::Edit;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -16,7 +20,7 @@ use std::sync::Arc;
 
 use pdfcraft_render::PageText;
 use pdfcraft_render::text::TextFilter;
-use pdfcraft_render::{OpenError, PageRenderer, RenderConfig, RenderRequest, RequestKind, effective_scale};
+use pdfcraft_render::{OpenError, PageInfo, PageRenderer, RenderConfig, RenderRequest, RequestKind, effective_scale};
 
 /// Pixel budget for one raster. The upstream cap (64 MP, 256 MB of RGBA) is sized for desktop
 /// memory; a browser's wasm heap is 32-bit and shared with the document, so we stop at 16 MP.
@@ -45,6 +49,9 @@ pub enum ErrorCode {
     /// The document restricts what its open password allows; removing or changing its
     /// protection needs the owner (permissions) password (Ubu Office decision D11).
     OwnerPasswordRequired,
+    /// An edit was refused: a page operation or comment the document cannot take (deleting
+    /// every page, a page that does not exist, a comment after a page operation in the same edit).
+    EditFailed,
 }
 
 impl ErrorCode {
@@ -59,6 +66,7 @@ impl ErrorCode {
             Self::SaveFailed => "save_failed",
             Self::InvalidPassword => "invalid_password",
             Self::OwnerPasswordRequired => "owner_password_required",
+            Self::EditFailed => "edit_failed",
         }
     }
 }
@@ -197,6 +205,8 @@ pub struct Document {
     bytes: Arc<Vec<u8>>,
     password: Option<String>,
     pages: Vec<PageSize>,
+    /// Each page's crop box and rotation, for placing comments given in view space.
+    geometry: Vec<PageInfo>,
     renderer: PageRenderer,
     text_cache: VecDeque<(usize, Arc<PageText>)>,
 }
@@ -218,7 +228,7 @@ impl Document {
                 format!("the renderer read {} pages where inspection read {}", renderer.page_count(), pages.len()),
             ));
         }
-        Ok(Self { bytes, password, pages, renderer, text_cache: VecDeque::new() })
+        Ok(Self { bytes, password, pages, geometry: info.pages, renderer, text_cache: VecDeque::new() })
     }
 
     pub fn page_count(&self) -> usize {
@@ -388,6 +398,22 @@ impl Document {
         require_change_allowed(&doc)?;
         doc.remove_encryption();
         write(&doc)
+    }
+
+    /// Start editing: page operations and comments, saved as an incremental update
+    /// ([`Edit::save`]). `date` is the PDF date (`D:YYYYMMDDHHmmSSZ`) stamped on new comments and
+    /// `/ModDate`; `id_prefix` starts each new comment's unique name. Refused with
+    /// `OwnerPasswordRequired` when the password the file was opened with may not change it.
+    pub fn edit(&self, date: Option<&str>, id_prefix: &str) -> Result<Edit, PdfError> {
+        let doc = self.object_layer()?;
+        let p = protection_of(&doc);
+        if !p.allow.modify && !p.opened_as_owner {
+            return Err(PdfError::new(
+                ErrorCode::OwnerPasswordRequired,
+                "this document's open password may not change it; open it with its owner (permissions) password to edit it",
+            ));
+        }
+        Ok(Edit::new(doc, self.geometry.clone(), date, id_prefix))
     }
 
     /// The upstream object layer over the same bytes and password. Opened on demand rather than

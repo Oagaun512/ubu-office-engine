@@ -777,6 +777,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "pdfcraft-annot"
+version = "0.8.0"
+dependencies = [
+ "pdfcraft-cos",
+ "pdfcraft-fonts",
+ "pdfcraft-model",
+ "thiserror",
+]
+
+[[package]]
+name = "pdfcraft-content"
+version = "0.8.0"
+dependencies = [
+ "pdfcraft-cos",
+]
+
+[[package]]
 name = "pdfcraft-cos"
 version = "0.8.0"
 dependencies = [
@@ -812,6 +829,22 @@ dependencies = [
  "pdfcraft-cos",
  "skrifa 0.44.0",
  "unicode-bidi",
+]
+
+[[package]]
+name = "pdfcraft-model"
+version = "0.8.0"
+dependencies = [
+ "pdfcraft-cos",
+]
+
+[[package]]
+name = "pdfcraft-organize"
+version = "0.8.0"
+dependencies = [
+ "pdfcraft-content",
+ "pdfcraft-cos",
+ "thiserror",
 ]
 
 [[package]]
@@ -1242,7 +1275,9 @@ version = "0.1.0"
 dependencies = [
  "getrandom",
  "js-sys",
+ "pdfcraft-annot",
  "pdfcraft-cos",
+ "pdfcraft-organize",
  "pdfcraft-render",
  "wasm-bindgen",
 ]
