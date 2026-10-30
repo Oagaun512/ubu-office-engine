@@ -38,10 +38,20 @@ cargo test --manifest-path xlsx/Cargo.toml -p ubu-sheets
 cargo test --manifest-path pptx/Cargo.toml -p ubu-slides
 ```
 
-## Contributing and security
+## Where the engines run in Ubunex
+
+Ubu Office has its own front door at `/office` (Home, Recent, Documents, Sheets, Slides, PDFs,
+Templates). As of 2026-10-30 it is still flagged in Ubunex (`ubu_office`, with the `/office` home
+behind `product_homes`), and the Office 2.0 features built on these engines ship admins-first:
+PDF page organising and comments (`office_pdf_edit`, built on E1 #20) and the Office-style
+ribbons (`office_ribbon_v2`). The third-party licences of everything linked here are shown on
+Ubunex's `/legal/third-party` page.
+
+## Contributing, security and support
 
 See `CONTRIBUTING.md` (build, test, pull request checklist), `SECURITY.md` (report a vulnerability
-privately), `CODE_OF_CONDUCT.md` and `CHANGELOG.md`.
+privately), `CODE_OF_CONDUCT.md` and `CHANGELOG.md`. For help with Ubu Office itself (not this
+repository), see Ubunex's `SUPPORT.md` or write to `support@ubunex.com`.
 
 ## Licence
 

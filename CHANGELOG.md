@@ -12,7 +12,11 @@ below (such as S3–S7, P3, P4 and P6) have no engine-side change in this reposi
 
 ## Unreleased
 
-Nothing yet beyond the entries below.
+- **Launch documents** (2026-10-30): `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, this
+  changelog, and a README section on where the engines run in Ubunex. No engine code changed
+  since E1 (#20).
+- In Ubunex (not this repository), Ubu Office got its own home at `/office`, and the PDF editing
+  from #20 reached the app as "Organize pages" and "Comment". Both are still flagged admins-first.
 
 ## PDF editing (E1, 2026-10-24)
 
